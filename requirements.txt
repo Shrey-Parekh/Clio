@@ -1,0 +1,2 @@
+# Dependencies are added as each phase needs them, not speculatively.
+# Phase 0.3 (config) adds: python-dotenv
