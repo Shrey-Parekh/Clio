@@ -1,0 +1,22 @@
+# Non-secret defaults. Secrets (API keys) live in .env, never here.
+# Any value here can be overridden by the matching CLIO_* env var - see .env.example.
+
+[llm]
+model = "gemini-2.5-flash"
+
+[speech]
+tts_engine = "edge"       # edge | kokoro | elevenlabs | gemini
+tts_voice = "en-IE-EmilyNeural"
+stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | large-v3
+stt_device = "cuda"       # cuda | cpu
+
+[wake_word]
+word = "clio"
+threshold = 0.5
+
+[persona]
+name = "default"
+
+[runtime]
+log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
+core_port = 8765

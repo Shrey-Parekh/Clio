@@ -4,9 +4,25 @@ import signal
 import sys
 import time
 
+from clio.core.config import ConfigError, load_config
+
 
 def main() -> int:
     print("Clio starting...")
+
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(f"Config error: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"Loaded config - persona: {config.persona.name}, "
+        f"wake word: {config.wake_word.word!r}, "
+        f"LLM: {config.llm.model}, "
+        f"TTS: {config.speech.tts_engine} ({config.speech.tts_voice}), "
+        f"port: {config.runtime.core_port}"
+    )
 
     running = True
 

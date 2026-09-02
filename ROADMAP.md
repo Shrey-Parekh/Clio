@@ -37,7 +37,7 @@ The skeleton everything else bolts onto. No features yet, but nothing after this
 
 - [x] **0.1** Repo init, `.gitignore`, `.env.example`, README, Python 3.11 venv
 - [x] **0.2** Package layout and dependency manifest - `clio/` package, `requirements.txt`, an entrypoint that starts and exits cleanly
-- [ ] **0.3** Config system - TOML config plus `.env` secrets, typed access, validated on load, clear error when a key is missing
+- [x] **0.3** Config system - TOML config plus `.env` secrets, typed access, validated on load, clear error when a key is missing
 - [ ] **0.4** Structured logging - JSON to file, readable console, rotation. Every decision and tool call lands here.
 - [ ] **0.5** Event bus - internal async pub/sub, so voice, UI, capabilities and remote all react to the same events without wiring each to each
 - [ ] **0.6** GitHub remote and branch strategy - push to `Shrey-Parekh/Clio`, document commit conventions
