@@ -1,4 +1,4 @@
-# Jarvis — Personal Voice Assistant | Project Kickoff Prompt
+# Clio — Personal Voice Assistant | Project Kickoff Prompt
 
 > Paste this whole document as the first message in a new Claude chat / Claude Code session.
 
@@ -6,7 +6,7 @@
 
 ## 1. What we're building
 
-A personal, always-available voice assistant for my Windows PC — a real working "Jarvis/Friday". It wakes on command, talks back, and executes real tasks on my machine and my accounts. Not a demo, not a toy: something I actually use daily and keep extending for years.
+A personal, always-available voice assistant for my Windows PC — a real working assistant in the Jarvis/Friday mould. It wakes on command, talks back, and executes real tasks on my machine and my accounts. Not a demo, not a toy: something I actually use daily and keep extending for years.
 
 **Core loop:** wake trigger → listen → understand intent → route to a capability → execute → speak/show result.
 
@@ -84,7 +84,7 @@ Be realistic: nothing is literally flawless. What I want is **predictable** — 
 - **Latest news / web research** — search + fetch + summarise. Morning briefing on demand.
 
 ### Tier 2 — Doing things on my machine
-- **Opening things** — launch apps, open files, folders, URLs, projects. "Open my chem assignment", "open VS Code in the Jarvis repo".
+- **Opening things** — launch apps, open files, folders, URLs, projects. "Open my chem assignment", "open VS Code in the Clio repo".
 - **Window and system control** — focus/minimise/arrange windows, volume, brightness, lock, sleep, monitor switching.
 - **Screen understanding (on demand)** — "what's on my screen", "read this to me", "summarise this page", "what does this error mean". Hotkey or voice triggered.
 - **Context awareness of what I'm doing** — when I ask something vague, it can check the active window/screen to work out what I'm referring to instead of making me re-explain. **On demand only — never continuous background capture** (cost + privacy, see section 6).
@@ -107,7 +107,7 @@ Be realistic: nothing is literally flawless. What I want is **predictable** — 
 - **Remote wake + file retrieval** — the "I'm at college and left a file on my PC" case:
   - Wake-on-LAN (BIOS + NIC configured; PSU stays powered)
   - **Tailscale** for secure remote reach into home network (identity-based auth, no exposed ports — preferred over router port-forwarding)
-  - Then either Jarvis auto-emails/uploads the requested file, or I RDP in myself (RustDesk / Chrome Remote Desktop / Windows RDP)
+  - Then either Clio auto-emails/uploads the requested file, or I RDP in myself (RustDesk / Chrome Remote Desktop / Windows RDP)
 - **Push notifications to me** — "text/email me when this build finishes", "tell me when that PR gets reviewed".
 - **Smart home integration** — coming soon on my end. Prefer Home Assistant (local API, vendor-neutral) over per-brand apps. Slots in as another capability, not a new architecture.
 - **Rule-based automation** — "when X happens do Y". File organisation, batch operations, backups, scheduled routines.

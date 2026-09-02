@@ -1,4 +1,4 @@
-# Jarvis
+# Clio
 
 A personal voice assistant for Windows. Wake word or hotkey, natural speech in and out,
 and a growing set of capabilities that do real work on this machine and my accounts.
@@ -18,14 +18,14 @@ copy .env.example .env
 Fill in `.env`, then:
 
 ```
-python -m jarvis
+python -m clio
 ```
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `jarvis/` | Core service - voice loop, LLM harness, capability registry |
+| `clio/` | Core service - voice loop, LLM harness, capability registry |
 | `ui/` | Desktop frontend - tray, overlay, chat window |
 | `config/` | Persona, voice, and capability configuration |
 | `docs/` | Design notes written as each phase lands |

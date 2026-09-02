@@ -1,4 +1,4 @@
-# Jarvis - Build Plan
+# Clio - Build Plan
 
 Ordered phases. Each phase ships something usable. Each task is finished, verified, and
 committed before the next one starts.
@@ -15,7 +15,7 @@ Proposed, with reasoning. Sign off or override before Phase 0 code lands.
 |---|---|---|
 | Core service | Python 3.11 | Best ecosystem for STT/TTS/wake-word/Windows automation. 3.11 not 3.13 - several audio/ML wheels still lag on 3.13. |
 | Core transport | FastAPI + WebSocket | One core process; UI, phone webhook and remote all speak to it the same way. Gives Tier 4 a path for free later. |
-| Wake word | openWakeWord (ONNX) | Local, ~1% of one core, free, custom words trainable. Porcupine's free tier restricts custom keywords. |
+| Wake word | openWakeWord (ONNX), custom-trained on "Clio" | Local, ~1% of one core, free. No pretrained "Clio" model exists, so task 1.5 trains one from synthetic speech - a few hours on the 4060 Ti, one time. Porcupine's console would be faster but ties a personal-tier access key into the critical path. |
 | VAD / endpointing | Silero VAD | Tiny and accurate. Drives both turn-end detection and barge-in. |
 | STT | faster-whisper `small.en`, CUDA int8_float16 | Local, roughly 200-400ms on the 4060 Ti, no per-word cost, works offline. |
 | TTS | Edge TTS primary, Kokoro local fallback | Edge is neural quality, free, and streams. Kokoro is the offline path. Both get compared in task 1.1 before we commit. |
@@ -36,13 +36,13 @@ at the same time with room left for normal work.
 The skeleton everything else bolts onto. No features yet, but nothing after this needs a rewrite.
 
 - [x] **0.1** Repo init, `.gitignore`, `.env.example`, README, Python 3.11 venv
-- [ ] **0.2** Package layout and dependency manifest - `jarvis/` package, `requirements.txt`, an entrypoint that starts and exits cleanly
+- [ ] **0.2** Package layout and dependency manifest - `clio/` package, `requirements.txt`, an entrypoint that starts and exits cleanly
 - [ ] **0.3** Config system - TOML config plus `.env` secrets, typed access, validated on load, clear error when a key is missing
 - [ ] **0.4** Structured logging - JSON to file, readable console, rotation. Every decision and tool call lands here.
 - [ ] **0.5** Event bus - internal async pub/sub, so voice, UI, capabilities and remote all react to the same events without wiring each to each
-- [ ] **0.6** GitHub remote and branch strategy - push to `Shrey-Parekh/Jarvis`, document commit conventions
+- [ ] **0.6** GitHub remote and branch strategy - push to `Shrey-Parekh/Clio`, document commit conventions
 
-*Verify:* `python -m jarvis` starts, reads config, logs a startup event, shuts down cleanly on Ctrl+C.
+*Verify:* `python -m clio` starts, reads config, logs a startup event, shuts down cleanly on Ctrl+C.
 
 ---
 
@@ -53,11 +53,11 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 
 ### 1a - Voice quality first
 
-- [ ] **1.1** TTS comparison - the same five real sentences through Edge TTS, Kokoro and Gemini TTS. **You listen and pick.** Nothing else in this phase starts until the voice is chosen.
+- [ ] **1.1** TTS comparison - the same five real sentences through a female shortlist: Edge (`en-IE-EmilyNeural`, `en-GB-SoniaNeural`, `en-GB-LibbyNeural`, `en-AU-NatashaNeural`, `en-US-AvaNeural`), Kokoro (`bf_emma`, `af_heart`) and Gemini TTS. **You listen and pick.** Nothing else in this phase starts until the voice is chosen.
 - [ ] **1.2** TTS engine module - chosen engine behind a `SpeechEngine` interface, sentence-level streaming (speak sentence one while two renders), cancellable mid-utterance
 - [ ] **1.3** Audio input - mic capture, Silero VAD, turn endpointing. It knows when you started and stopped talking.
 - [ ] **1.4** STT - faster-whisper on CUDA, warm-loaded, partial transcripts supported
-- [ ] **1.5** Wake word - openWakeWord always on, low CPU, tuned threshold, clear acknowledgement
+- [ ] **1.5** Wake word - train a custom "Clio" openWakeWord model from synthetic speech, then run it always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done.
 
 ### 1b - The brain
 
@@ -68,12 +68,12 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 
 ### 1c - Make it feel real
 
-- [ ] **1.10** Barge-in - speaking over Jarvis stops it and starts listening
+- [ ] **1.10** Barge-in - speaking over Clio stops it and starts listening
 - [ ] **1.11** Conversation mode - it keeps listening briefly after answering, so follow-ups need no wake word
 - [ ] **1.12** Persona and voice config - one voice, one personality, defined in config, consistent across responses
 - [ ] **1.13** First real capability, timers - proves the whole path and the deterministic fast path at once. A timer must never cost an API call.
 
-*Verify:* Say "Jarvis" - it wakes, you speak, it answers in a voice you like, you can cut it off
+*Verify:* Say "Clio" - it wakes, you speak, it answers in a voice you like, you can cut it off
 mid-sentence, follow up without re-waking, and "set a timer for two minutes" actually fires.
 
 ---
@@ -202,10 +202,18 @@ The "I'm at college and left the file on my PC" phase.
 
 ---
 
-## Open questions before Phase 1
+## Identity - settled
 
-1. **Wake word** - "Jarvis" exactly, or something less prone to false triggers?
-2. **Voice** - any preference on accent or gender, or pick from the 1.1 samples blind?
-3. **Persona** - dry and terse, warm and chatty, or neutral?
-4. **Frontend** - Tauri means installing the Rust toolchain. Fine, or would you rather stay
-   single-language with a Python UI at some cost to polish?
+- **Name:** Clio
+- **Wake word:** "Clio". Two syllables and uncommon in ordinary speech, which helps, but it is short -
+  if false triggers turn out to be a problem in daily use, "Hey Clio" is the fallback and needs
+  only a retrain, not a redesign.
+- **Voice:** female, in the register of F.R.I.D.A.Y. The reference accent is Irish (Kerry Condon),
+  so `en-IE-EmilyNeural` leads the Edge shortlist, with British and Australian alternatives
+  alongside it - they land in similar territory without being an impersonation.
+- **Frontend:** Tauri v2, confirmed.
+
+- **Persona:** friendly and quick-witted, with room to be dry or funny - Jarvis rather than Friday
+  on this axis. The constraint is restraint: wit shows up occasionally, not in every response, and
+  never at the cost of getting to the answer. Concise stays the default. Defined in config, so it
+  is cheap to retune once you have lived with it.
