@@ -40,7 +40,7 @@ The skeleton everything else bolts onto. No features yet, but nothing after this
 - [x] **0.3** Config system - TOML config plus `.env` secrets, typed access, validated on load, clear error when a key is missing
 - [x] **0.4** Structured logging - JSON to file, readable console, rotation. Every decision and tool call lands here.
 - [x] **0.5** Event bus - internal async pub/sub, so voice, UI, capabilities and remote all react to the same events without wiring each to each
-- [ ] **0.6** GitHub remote and branch strategy - push to `Shrey-Parekh/Clio`, document commit conventions
+- [x] **0.6** GitHub remote and branch strategy - push to `Shrey-Parekh/Clio`, document commit conventions
 
 *Verify:* `python -m clio` starts, reads config, logs a startup event, shuts down cleanly on Ctrl+C.
 

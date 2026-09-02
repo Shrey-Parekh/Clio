@@ -29,3 +29,17 @@ python -m clio
 | `ui/` | Desktop frontend - tray, overlay, chat window |
 | `config/` | Persona, voice, and capability configuration |
 | `docs/` | Design notes written as each phase lands |
+
+## Git workflow
+
+- `main` is the working branch. Each roadmap task lands as one atomic commit, in
+  order, and gets pushed once it's verified - see [ROADMAP.md](ROADMAP.md) for
+  what "done" means per task.
+- Once a phase involves something riskier than the previous ones (a rewrite, a
+  breaking config change, UI work that takes a few sittings), it gets a short-lived
+  `phase/N-name` branch, merged back to `main` and deleted once it's done.
+- Commit subjects are `Phase X.Y: what changed`, or a plain description for anything
+  outside the phase numbering. Body explains what changed and, where it matters,
+  why - not a restatement of the diff.
+- No secrets, no generated models, no `logs/` or other runtime output ever committed
+  - see `.gitignore`.
