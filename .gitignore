@@ -1,0 +1,50 @@
+# Secrets
+.env
+.env.*
+!.env.example
+config/local.*
+*.key
+*.pem
+credentials*.json
+token*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.svelte-kit/
+target/
+
+# Models & large assets (downloaded, not committed)
+models/
+*.onnx
+*.bin
+*.pt
+*.safetensors
+
+# Runtime data
+data/
+logs/
+*.log
+*.db
+*.sqlite3
+audio_cache/
+tmp/
+scratch/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
