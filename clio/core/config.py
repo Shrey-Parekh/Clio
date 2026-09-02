@@ -22,7 +22,15 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class LLMConfig:
-    model: str
+    model_fast: str
+    model_default: str
+    model_reasoning: str
+
+    def model_for(self, tier: str = "default") -> str:
+        try:
+            return getattr(self, f"model_{tier}")
+        except AttributeError as exc:
+            raise ConfigError(f"Unknown LLM tier '{tier}'. Use fast, default, or reasoning.") from exc
 
 
 @dataclass(frozen=True)
@@ -89,7 +97,9 @@ def load_config(root: Path | None = None) -> Config:
 
     try:
         llm = LLMConfig(
-            model=_env_override("CLIO_LLM_MODEL", raw["llm"]["model"]),
+            model_fast=_env_override("CLIO_LLM_MODEL_FAST", raw["llm"]["model_fast"]),
+            model_default=_env_override("CLIO_LLM_MODEL_DEFAULT", raw["llm"]["model_default"]),
+            model_reasoning=_env_override("CLIO_LLM_MODEL_REASONING", raw["llm"]["model_reasoning"]),
         )
         speech = SpeechConfig(
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),

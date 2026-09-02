@@ -19,7 +19,7 @@ Proposed, with reasoning. Sign off or override before Phase 0 code lands.
 | VAD / endpointing | Silero VAD | Tiny and accurate. Drives both turn-end detection and barge-in. |
 | STT | faster-whisper `small.en`, CUDA int8_float16 | Local, roughly 200-400ms on the 4060 Ti, no per-word cost, works offline. |
 | TTS | Edge TTS primary, Kokoro local fallback | Edge is neural quality, free, and streams. Kokoro is the offline path. Both get compared in task 1.1 before we commit. |
-| LLM | Gemini via `google-genai`, behind a provider interface | You have Pro. The interface means swapping or adding a model is a config change. |
+| LLM | Gemini via `google-genai`, three tiers behind one provider interface | You have Pro, and paying for it should mean using it - fast/default/reasoning tiers (`gemini-3.5-flash-lite` / `gemini-3.8-flash` / `gemini-3.1-pro-preview`, verified current as of Sept 2026, not assumed) are picked per task rather than one model for everything. The interface still means swapping or adding a model is a config change. |
 | Frontend | Tauri v2 + web UI | Tray, overlay HUD and chat window in one app at roughly 10-30MB idle. Electron would cost 200MB+, which fights the footprint constraint. |
 | Config | TOML, secrets in `.env` | Human-editable and diffable. Secrets never in the repo. |
 | Storage | SQLite, plus plain markdown/JSON for memory | Memory stays inspectable and hand-editable, per the brief. |
@@ -61,7 +61,7 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 
 ### 1b - The brain
 
-- [ ] **1.6** LLM provider interface and Gemini - streaming responses, timeout handling, one clean seam for swapping models
+- [ ] **1.6** LLM provider interface and Gemini - streaming responses, timeout handling, tier selection (fast/default/reasoning) exposed as one clean seam so swapping or adding a model is a config change. `gemini-3.1-pro-preview` is preview-status - watch for it graduating to a stable ID and update the config default when it does.
 - [ ] **1.7** Tool calling with schema validation - the model picks a capability and supplies arguments; invalid arguments are rejected and retried, never executed blind
 - [ ] **1.8** Session memory - rolling conversation context with trimming and summarisation so the window never blows
 - [ ] **1.9** Error surfacing - every failure spoken in plain language. No silent no-ops, no dead prompt.
@@ -91,6 +91,7 @@ Phase 1 works. This makes it *predictable*, which is the bar the brief actually 
 - [ ] **2.7** Multi-step execution with checkpoints - progress tracked and surfaced, no fire-and-forget chains
 - [ ] **2.8** Observability - token and cost tracking per request, and a decision/tool-call trace you can debug from
 - [ ] **2.9** Lazy loading and footprint audit - measure idle CPU and RAM, defer every heavy model until first use
+- [ ] **2.10** Self-diagnosis and feedback learning - when a tool call fails, Clio reads her own trace from 2.8 and explains what actually happened, not a generic "something went wrong." When you correct her - wrong assumption, bad call, preference she should have known - that correction is written to persistent memory (2.5) as a standing rule, checked before the same situation repeats. Scope to confirm: does a correction apply narrowly (this exact tool, these exact conditions) or should it generalise (this capability, or this kind of mistake in general)? Getting that wrong in either direction is worse than being conservative at first.
 
 *Verify:* Pull the network mid-conversation and it degrades honestly instead of hanging.
 

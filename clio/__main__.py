@@ -26,7 +26,7 @@ async def _run(config) -> int:
         {
             "persona": config.persona.name,
             "wake_word": config.wake_word.word,
-            "llm_model": config.llm.model,
+            "llm_model_default": config.llm.model_default,
             "tts_engine": config.speech.tts_engine,
             "tts_voice": config.speech.tts_voice,
             "core_port": config.runtime.core_port,

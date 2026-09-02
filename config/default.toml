@@ -2,7 +2,10 @@
 # Any value here can be overridden by the matching CLIO_* env var - see .env.example.
 
 [llm]
-model = "gemini-2.5-flash"
+# Three tiers, picked per task rather than one model for everything.
+model_fast = "gemini-3.5-flash-lite"        # routing decisions, simple lookups, low-stakes classification
+model_default = "gemini-3.8-flash"          # general conversation, most tool calls
+model_reasoning = "gemini-3.1-pro-preview"  # multi-step planning, anything that benefits from extended thinking
 
 [speech]
 tts_engine = "edge"       # edge | kokoro | elevenlabs | gemini
@@ -11,8 +14,8 @@ stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | 
 stt_device = "cuda"       # cuda | cpu
 
 [wake_word]
-word = "clio"
-threshold = 0.5
+word = "hey, Clio"
+threshold = 0.4
 
 [persona]
 name = "default"
