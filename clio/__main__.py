@@ -5,23 +5,32 @@ import sys
 import time
 
 from clio.core.config import ConfigError, load_config
+from clio.core.logging import get_logger, setup_logging
 
 
 def main() -> int:
-    print("Clio starting...")
-
     try:
         config = load_config()
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    print(
-        f"Loaded config - persona: {config.persona.name}, "
-        f"wake word: {config.wake_word.word!r}, "
-        f"LLM: {config.llm.model}, "
-        f"TTS: {config.speech.tts_engine} ({config.speech.tts_voice}), "
-        f"port: {config.runtime.core_port}"
+    setup_logging(level=config.runtime.log_level)
+    log = get_logger("clio.startup")
+
+    log.info("Clio starting")
+    log.info(
+        "Config loaded",
+        extra={
+            "extra_fields": {
+                "persona": config.persona.name,
+                "wake_word": config.wake_word.word,
+                "llm_model": config.llm.model,
+                "tts_engine": config.speech.tts_engine,
+                "tts_voice": config.speech.tts_voice,
+                "core_port": config.runtime.core_port,
+            }
+        },
     )
 
     running = True
@@ -35,11 +44,11 @@ def main() -> int:
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, _stop)
 
-    print("Clio is running. Press Ctrl+C to stop.")
+    log.info("Clio is running. Press Ctrl+C to stop.")
     while running:
         time.sleep(0.2)
 
-    print("Clio shutting down...")
+    log.info("Clio shutting down")
     return 0
 
 
