@@ -25,8 +25,12 @@ local_fallback_host = "http://localhost:11434"
 [speech]
 tts_engine = "kokoro"     # edge | kokoro | elevenlabs | gemini
 tts_voice = "af_heart"    # picked from a 12-way comparison (5 sentences x 7 Edge/Kokoro voices, then +9 more Kokoro af_* voices)
+stt_provider = "local"    # local | groq - benchmarked equal accuracy (clean and at 5dB SNR),
+                          # local is free/private/offline and doesn't burn Groq rate limits.
+                          # groq is ~equally fast (0.22s vs 0.26s mean) if the GPU is busy elsewhere.
 stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | large-v3
 stt_device = "cuda"       # cuda | cpu
+stt_groq_model = "whisper-large-v3-turbo"
 # Relative paths resolve against the project root; not committed, see .gitignore.
 kokoro_model_path = "models/kokoro-v1.0.fp16-gpu.onnx"
 kokoro_voices_path = "models/voices-v1.0.bin"

@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 _VALID_TTS_ENGINES = {"edge", "kokoro", "elevenlabs", "gemini"}
 _VALID_STT_DEVICES = {"cuda", "cpu"}
+_VALID_STT_PROVIDERS = {"local", "groq"}
 _VALID_LLM_PROVIDERS = {"groq", "gemini"}
 _VALID_EFFORTS = {"low", "medium", "high"}
 _PROVIDER_SECRET_NAME = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
@@ -55,8 +56,10 @@ class LLMConfig:
 class SpeechConfig:
     tts_engine: str
     tts_voice: str
+    stt_provider: str
     stt_model: str
     stt_device: str
+    stt_groq_model: str
     kokoro_model_path: str
     kokoro_voices_path: str
 
@@ -159,8 +162,10 @@ def load_config(root: Path | None = None) -> Config:
         speech = SpeechConfig(
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),
             tts_voice=_env_override("CLIO_TTS_VOICE", raw["speech"]["tts_voice"]),
+            stt_provider=_env_override("CLIO_STT_PROVIDER", raw["speech"]["stt_provider"]).lower(),
             stt_model=_env_override("CLIO_STT_MODEL", raw["speech"]["stt_model"]),
             stt_device=_env_override("CLIO_STT_DEVICE", raw["speech"]["stt_device"]),
+            stt_groq_model=_env_override("CLIO_STT_GROQ_MODEL", raw["speech"]["stt_groq_model"]),
             kokoro_model_path=str(
                 root / _env_override("CLIO_KOKORO_MODEL_PATH", raw["speech"]["kokoro_model_path"])
             ),
@@ -237,6 +242,10 @@ def _validate(config: Config) -> None:
     if config.speech.stt_device not in _VALID_STT_DEVICES:
         errors.append(
             f"speech.stt_device '{config.speech.stt_device}' must be one of {sorted(_VALID_STT_DEVICES)}"
+        )
+    if config.speech.stt_provider not in _VALID_STT_PROVIDERS:
+        errors.append(
+            f"speech.stt_provider '{config.speech.stt_provider}' must be one of {sorted(_VALID_STT_PROVIDERS)}"
         )
     if not (0.0 <= config.wake_word.threshold <= 1.0):
         errors.append(f"wake_word.threshold {config.wake_word.threshold} must be between 0.0 and 1.0")
