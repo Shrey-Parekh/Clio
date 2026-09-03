@@ -15,11 +15,11 @@ Proposed, with reasoning. Sign off or override before Phase 0 code lands.
 |---|---|---|
 | Core service | Python 3.11 | Best ecosystem for STT/TTS/wake-word/Windows automation. 3.11 not 3.13 - several audio/ML wheels still lag on 3.13. |
 | Core transport | FastAPI + WebSocket | One core process; UI, phone webhook and remote all speak to it the same way. Gives Tier 4 a path for free later. |
-| Wake word | openWakeWord (ONNX), custom-trained on "Clio" | Local, ~1% of one core, free. No pretrained "Clio" model exists, so task 1.5 trains one from synthetic speech - a few hours on the 4060 Ti, one time. Porcupine's console would be faster but ties a personal-tier access key into the critical path. |
+| Wake word | openWakeWord (ONNX), custom-trained on two phrases: "Hey Clio" and "Wakey wakey Clio" | Local, ~1% of one core, free. Neither phrase has a pretrained model, so task 1.5 trains both from synthetic speech - more one-time work than a single phrase, since each needs its own trained model (or a combined multi-label classifier). Schema is a list from the start (`wake_word.phrases`) so more phrases slot in later without a redesign. |
 | VAD / endpointing | Silero VAD | Tiny and accurate. Drives both turn-end detection and barge-in. |
 | STT | faster-whisper `small.en`, CUDA int8_float16 | Local, roughly 200-400ms on the 4060 Ti, no per-word cost, works offline. |
 | TTS | Edge TTS primary, Kokoro local fallback | Edge is neural quality, free, and streams. Kokoro is the offline path. Both get compared in task 1.1 before we commit. |
-| LLM | Gemini via `google-genai`, three tiers behind one provider interface | You have Pro, and paying for it should mean using it - fast/default/reasoning tiers (`gemini-3.5-flash-lite` / `gemini-3.8-flash` / `gemini-3.1-pro-preview`, verified current as of Sept 2026, not assumed) are picked per task rather than one model for everything. The interface still means swapping or adding a model is a config change. |
+| LLM | Groq (free, no billing), three tiers, local Ollama fallback | Gemini's API billing wall (Sept 2026: even the nominally-free Flash tier returned zero quota, and Pro is billing-only) ruled it out - not willing to pay. Groq hosts open-weight models (`openai/gpt-oss-20b`, `qwen/qwen3.6-27b`, `openai/gpt-oss-120b` - "openai/" names who built the weights, not an OpenAI API dependency) free with no card, verified working, sub-second on the fast and reasoning tiers. `qwen3.6-27b` reasons in `<think>` blocks before answering - extra latency/tokens even on trivial calls, worth watching once this is in the live voice loop. Local `qwen3:8b` via Ollama (already on this machine) covers the offline/fallback path for free, satisfying 2.3's retry/fallback and 2.4's offline-degradation requirements at zero cost instead of needing to engineer them separately. |
 | Frontend | Tauri v2 + web UI | Tray, overlay HUD and chat window in one app at roughly 10-30MB idle. Electron would cost 200MB+, which fights the footprint constraint. |
 | Config | TOML, secrets in `.env` | Human-editable and diffable. Secrets never in the repo. |
 | Storage | SQLite, plus plain markdown/JSON for memory | Memory stays inspectable and hand-editable, per the brief. |
@@ -53,15 +53,15 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 
 ### 1a - Voice quality first
 
-- [ ] **1.1** TTS comparison - the same five real sentences through a female shortlist: Edge (`en-IE-EmilyNeural`, `en-GB-SoniaNeural`, `en-GB-LibbyNeural`, `en-AU-NatashaNeural`, `en-US-AvaNeural`), Kokoro (`bf_emma`, `af_heart`) and Gemini TTS. **You listen and pick.** Nothing else in this phase starts until the voice is chosen.
+- [~] **1.1** TTS comparison - the same five real sentences through a female shortlist: Edge (`en-IE-EmilyNeural`, `en-GB-SoniaNeural`, `en-GB-LibbyNeural`, `en-AU-NatashaNeural`, `en-US-AvaNeural`) and Kokoro (`bf_emma`, `af_heart`). Gemini TTS dropped - same billing wall as the LLM. 35 samples generated and sent; waiting on your pick. **You listen and pick.** Nothing else in this phase starts until the voice is chosen.
 - [ ] **1.2** TTS engine module - chosen engine behind a `SpeechEngine` interface, sentence-level streaming (speak sentence one while two renders), cancellable mid-utterance
 - [ ] **1.3** Audio input - mic capture, Silero VAD, turn endpointing. It knows when you started and stopped talking.
 - [ ] **1.4** STT - faster-whisper on CUDA, warm-loaded, partial transcripts supported
-- [ ] **1.5** Wake word - train a custom "Clio" openWakeWord model from synthetic speech, then run it always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done.
+- [ ] **1.5** Wake word - train custom openWakeWord models for "Hey Clio" and "Wakey wakey Clio" from synthetic speech, then run always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done.
 
 ### 1b - The brain
 
-- [ ] **1.6** LLM provider interface and Gemini - streaming responses, timeout handling, tier selection (fast/default/reasoning) exposed as one clean seam so swapping or adding a model is a config change. `gemini-3.1-pro-preview` is preview-status - watch for it graduating to a stable ID and update the config default when it does.
+- [ ] **1.6** LLM provider interface, Groq + local fallback - streaming responses, timeout handling, tier selection (fast/default/reasoning) exposed as one clean seam so swapping or adding a model is a config change. Groq key verified working (Sept 2026) across all three tiers, sub-second on fast/reasoning. Falls back to local Ollama (`qwen3:8b`) when Groq's unreachable - this is also where 2.3's retry/fallback logic gets its first real exercise, pulled forward from Phase 2 rather than stubbed.
 - [ ] **1.7** Tool calling with schema validation - the model picks a capability and supplies arguments; invalid arguments are rejected and retried, never executed blind
 - [ ] **1.8** Session memory - rolling conversation context with trimming and summarisation so the window never blows
 - [ ] **1.9** Error surfacing - every failure spoken in plain language. No silent no-ops, no dead prompt.

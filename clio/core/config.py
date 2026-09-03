@@ -14,6 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 _VALID_TTS_ENGINES = {"edge", "kokoro", "elevenlabs", "gemini"}
 _VALID_STT_DEVICES = {"cuda", "cpu"}
+_VALID_LLM_PROVIDERS = {"groq", "gemini"}
+_PROVIDER_SECRET_NAME = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
 
 
 class ConfigError(Exception):
@@ -22,15 +24,21 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True)
 class LLMConfig:
+    provider: str
     model_fast: str
     model_default: str
     model_reasoning: str
+    local_fallback_model: str
+    local_fallback_host: str
 
     def model_for(self, tier: str = "default") -> str:
         try:
             return getattr(self, f"model_{tier}")
         except AttributeError as exc:
             raise ConfigError(f"Unknown LLM tier '{tier}'. Use fast, default, or reasoning.") from exc
+
+    def provider_secret_name(self) -> str:
+        return _PROVIDER_SECRET_NAME[self.provider]
 
 
 @dataclass(frozen=True)
@@ -43,7 +51,7 @@ class SpeechConfig:
 
 @dataclass(frozen=True)
 class WakeWordConfig:
-    word: str
+    phrases: tuple[str, ...]
     threshold: float
 
 
@@ -81,6 +89,13 @@ def _env_override(env_key: str, default: str) -> str:
     return os.environ.get(env_key) or default
 
 
+def _env_list_override(env_key: str, default: list[str]) -> tuple[str, ...]:
+    raw = os.environ.get(env_key)
+    if not raw:
+        return tuple(default)
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def load_config(root: Path | None = None) -> Config:
     root = root or PROJECT_ROOT
 
@@ -97,9 +112,16 @@ def load_config(root: Path | None = None) -> Config:
 
     try:
         llm = LLMConfig(
+            provider=_env_override("CLIO_LLM_PROVIDER", raw["llm"]["provider"]).lower(),
             model_fast=_env_override("CLIO_LLM_MODEL_FAST", raw["llm"]["model_fast"]),
             model_default=_env_override("CLIO_LLM_MODEL_DEFAULT", raw["llm"]["model_default"]),
             model_reasoning=_env_override("CLIO_LLM_MODEL_REASONING", raw["llm"]["model_reasoning"]),
+            local_fallback_model=_env_override(
+                "CLIO_LLM_LOCAL_FALLBACK_MODEL", raw["llm"]["local_fallback_model"]
+            ),
+            local_fallback_host=_env_override(
+                "CLIO_LLM_LOCAL_FALLBACK_HOST", raw["llm"]["local_fallback_host"]
+            ),
         )
         speech = SpeechConfig(
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),
@@ -108,7 +130,7 @@ def load_config(root: Path | None = None) -> Config:
             stt_device=_env_override("CLIO_STT_DEVICE", raw["speech"]["stt_device"]),
         )
         wake_word = WakeWordConfig(
-            word=_env_override("CLIO_WAKE_WORD", raw["wake_word"]["word"]),
+            phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
             threshold=float(_env_override("CLIO_WAKE_THRESHOLD", str(raw["wake_word"]["threshold"]))),
         )
         persona = PersonaConfig(
@@ -147,8 +169,12 @@ def _validate(config: Config) -> None:
         )
     if not (0.0 <= config.wake_word.threshold <= 1.0):
         errors.append(f"wake_word.threshold {config.wake_word.threshold} must be between 0.0 and 1.0")
-    if not config.wake_word.word.strip():
-        errors.append("wake_word.word must not be empty")
+    if not config.wake_word.phrases:
+        errors.append("wake_word.phrases must not be empty")
+    elif any(not phrase.strip() for phrase in config.wake_word.phrases):
+        errors.append("wake_word.phrases must not contain blank entries")
+    if config.llm.provider not in _VALID_LLM_PROVIDERS:
+        errors.append(f"llm.provider '{config.llm.provider}' must be one of {sorted(_VALID_LLM_PROVIDERS)}")
 
     if errors:
         raise ConfigError("Invalid configuration:\n  - " + "\n  - ".join(errors))

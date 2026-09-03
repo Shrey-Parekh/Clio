@@ -2,10 +2,16 @@
 # Any value here can be overridden by the matching CLIO_* env var - see .env.example.
 
 [llm]
+# Free, no billing: Groq (cloud) as primary, a local Ollama model as offline fallback.
+# Provider must match one of the secrets in .env: groq -> GROQ_API_KEY, gemini -> GEMINI_API_KEY.
+provider = "groq"
 # Three tiers, picked per task rather than one model for everything.
-model_fast = "gemini-3.5-flash-lite"        # routing decisions, simple lookups, low-stakes classification
-model_default = "gemini-3.8-flash"          # general conversation, most tool calls
-model_reasoning = "gemini-3.1-pro-preview"  # multi-step planning, anything that benefits from extended thinking
+model_fast = "openai/gpt-oss-20b"           # routing decisions, simple lookups, low-stakes classification
+model_default = "qwen/qwen3.6-27b"          # general conversation, most tool calls
+model_reasoning = "openai/gpt-oss-120b"     # multi-step planning, anything that benefits from extended thinking
+# Used when Groq is unreachable or the network is down - runs entirely on this machine.
+local_fallback_model = "qwen3:8b"
+local_fallback_host = "http://localhost:11434"
 
 [speech]
 tts_engine = "edge"       # edge | kokoro | elevenlabs | gemini
@@ -14,7 +20,7 @@ stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | 
 stt_device = "cuda"       # cuda | cpu
 
 [wake_word]
-word = "hey, Clio"
+phrases = ["Hey Clio", "Wakey wakey Clio"]
 threshold = 0.4
 
 [persona]

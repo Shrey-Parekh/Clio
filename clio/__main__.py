@@ -25,7 +25,7 @@ async def _run(config) -> int:
         "clio.started",
         {
             "persona": config.persona.name,
-            "wake_word": config.wake_word.word,
+            "wake_phrases": list(config.wake_word.phrases),
             "llm_model_default": config.llm.model_default,
             "tts_engine": config.speech.tts_engine,
             "tts_voice": config.speech.tts_voice,
