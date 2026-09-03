@@ -101,9 +101,18 @@ def _env_override(env_key: str, default: str) -> str:
 
 def _env_list_override(env_key: str, default: list[str]) -> tuple[str, ...]:
     raw = os.environ.get(env_key)
-    if not raw:
-        return tuple(default)
-    return tuple(item.strip() for item in raw.split(",") if item.strip())
+    items = default if not raw else raw.split(",")
+    # Dedupe case-insensitively but keep the first spelling and the original order.
+    # Each wake phrase becomes its own always-on model in 1.5, so a duplicate is
+    # wasted CPU rather than a harmless repeat.
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        cleaned = item.strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            result.append(cleaned)
+    return tuple(result)
 
 
 def load_config(root: Path | None = None) -> Config:

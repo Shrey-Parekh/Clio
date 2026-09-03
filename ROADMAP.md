@@ -57,7 +57,7 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 - [ ] **1.2** TTS engine module - chosen engine behind a `SpeechEngine` interface, sentence-level streaming (speak sentence one while two renders), cancellable mid-utterance
 - [ ] **1.3** Audio input - mic capture, Silero VAD, turn endpointing. It knows when you started and stopped talking.
 - [ ] **1.4** STT - faster-whisper on CUDA, warm-loaded, partial transcripts supported
-- [ ] **1.5** Wake word - train custom openWakeWord models for "Hey Clio" and "Wakey wakey Clio" from synthetic speech, then run always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done.
+- [ ] **1.5** Wake word - train custom openWakeWord models for the 13 configured phrases from synthetic speech, then run always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done. **Watch the CPU cost here:** each phrase is its own always-on model, so if 13 turns out to be too heavy, trim to the 3-4 most-used and let conversation mode (1.11) cover the rest - once Clio is awake, follow-ups need no wake phrase at all.
 
 ### 1b - The brain
 

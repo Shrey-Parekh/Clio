@@ -29,7 +29,21 @@ stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | 
 stt_device = "cuda"       # cuda | cpu
 
 [wake_word]
-phrases = ["Hey Clio", "Wakey wakey Clio"]
+phrases = [
+    "Hey Clio",
+    "Wakey wakey Clio",
+    "Hello Clio",
+    "Listen Clio",
+    "Clio wake up",
+    "Ok Clio",
+    "Okay Clio",
+    "Hi Clio",
+    "Clio help",
+    "Ask Clio",
+    "Quick question Clio",
+    "Clio are you listening",
+    "Hey there Clio",
+]
 threshold = 0.4
 
 [persona]
