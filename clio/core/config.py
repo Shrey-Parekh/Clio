@@ -57,6 +57,8 @@ class SpeechConfig:
     tts_voice: str
     stt_model: str
     stt_device: str
+    kokoro_model_path: str
+    kokoro_voices_path: str
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,12 @@ def load_config(root: Path | None = None) -> Config:
             tts_voice=_env_override("CLIO_TTS_VOICE", raw["speech"]["tts_voice"]),
             stt_model=_env_override("CLIO_STT_MODEL", raw["speech"]["stt_model"]),
             stt_device=_env_override("CLIO_STT_DEVICE", raw["speech"]["stt_device"]),
+            kokoro_model_path=str(
+                root / _env_override("CLIO_KOKORO_MODEL_PATH", raw["speech"]["kokoro_model_path"])
+            ),
+            kokoro_voices_path=str(
+                root / _env_override("CLIO_KOKORO_VOICES_PATH", raw["speech"]["kokoro_voices_path"])
+            ),
         )
         wake_word = WakeWordConfig(
             phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
@@ -185,6 +193,13 @@ def _validate(config: Config) -> None:
         errors.append(
             f"speech.tts_engine '{config.speech.tts_engine}' must be one of {sorted(_VALID_TTS_ENGINES)}"
         )
+    elif config.speech.tts_engine == "kokoro":
+        for label, path in (
+            ("kokoro_model_path", config.speech.kokoro_model_path),
+            ("kokoro_voices_path", config.speech.kokoro_voices_path),
+        ):
+            if not Path(path).is_file():
+                errors.append(f"speech.{label} '{path}' does not exist - see .env.example for how to download it")
     if config.speech.stt_device not in _VALID_STT_DEVICES:
         errors.append(
             f"speech.stt_device '{config.speech.stt_device}' must be one of {sorted(_VALID_STT_DEVICES)}"

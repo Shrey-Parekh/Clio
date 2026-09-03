@@ -54,7 +54,7 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 ### 1a - Voice quality first
 
 - [x] **1.1** TTS comparison - Edge (5 voices) and Kokoro (2 voices, then +9 more `af_*` voices once Kokoro's `bf_emma`/`af_heart` won the first round) compared across the same 5 sentences, 80 samples total. Gemini TTS dropped - same billing wall as the LLM. **Picked: Kokoro, `af_heart`.** Local, free, no cloud dependency.
-- [ ] **1.2** TTS engine module - chosen engine behind a `SpeechEngine` interface, sentence-level streaming (speak sentence one while two renders), cancellable mid-utterance
+- [x] **1.2** TTS engine module - `clio/speech/tts.py`. `SpeechEngine` ABC + `KokoroSpeechEngine`. Sentence splitting handles abbreviations and decimals (`gpt-oss-3.5`, `192.168.1.1`, "Dr. Smith" all stay intact). Sentence N+1 renders while N plays - measured 4.50s wall time vs 5.06s synthesizing everything sequentially first. Cancellation is raced against synthesis at every await point, not just checked between them - the first version blocked cancellation for 1.4s behind a CPU-bound render before this was found and fixed; now resolves in 0ms. Remaining latency to actually go silent is ~180-240ms of `sd.stop()` itself - a real driver/backend cost, not fixed here, flagged for 1.10 (barge-in) since that's where the tighter budget belongs. Verified from a clean venv against only `requirements.txt`.
 - [ ] **1.3** Audio input - mic capture, Silero VAD, turn endpointing. It knows when you started and stopped talking.
 - [ ] **1.4** STT - faster-whisper on CUDA, warm-loaded, partial transcripts supported. Worth benchmarking against `whisper-large-v3-turbo`, which the Groq key also has free: a `large` model beats local `small.en` on accuracy, but needs the network. Likely answer is local for the always-available path, Groq as the accuracy upgrade when online - decide by measuring, not assuming.
 - [ ] **1.5** Wake word - train custom openWakeWord models for the 13 configured phrases from synthetic speech, then run always-on at low CPU with a tuned threshold and a clear acknowledgement. Measure the false-trigger rate over a normal day before calling it done. **Watch the CPU cost here:** each phrase is its own always-on model, so if 13 turns out to be too heavy, trim to the 3-4 most-used and let conversation mode (1.11) cover the rest - once Clio is awake, follow-ups need no wake phrase at all.
@@ -68,7 +68,7 @@ Voice quality and harness fundamentals belong to this phase, not to polish later
 
 ### 1c - Make it feel real
 
-- [ ] **1.10** Barge-in - speaking over Clio stops it and starts listening
+- [ ] **1.10** Barge-in - speaking over Clio stops it and starts listening. Known from 1.2: `sounddevice`'s `sd.stop()` alone takes ~180-240ms on this machine's default audio backend (measured in isolation, not just inside the engine). If that's too slow once this is felt end-to-end, look at a WASAPI-exclusive stream or smaller buffer sizes before assuming the whole pipeline needs a rethink.
 - [ ] **1.11** Conversation mode - it keeps listening briefly after answering, so follow-ups need no wake word
 - [ ] **1.12** Persona and voice config - one voice, one personality, defined in config, consistent across responses
 - [ ] **1.13** First real capability, timers - proves the whole path and the deterministic fast path at once. A timer must never cost an API call.

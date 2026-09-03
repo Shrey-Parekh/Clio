@@ -27,6 +27,9 @@ tts_engine = "kokoro"     # edge | kokoro | elevenlabs | gemini
 tts_voice = "af_heart"    # picked from a 12-way comparison (5 sentences x 7 Edge/Kokoro voices, then +9 more Kokoro af_* voices)
 stt_model = "small.en"    # faster-whisper size: tiny | base | small | medium | large-v3
 stt_device = "cuda"       # cuda | cpu
+# Relative paths resolve against the project root; not committed, see .gitignore.
+kokoro_model_path = "models/kokoro-v1.0.fp16-gpu.onnx"
+kokoro_voices_path = "models/voices-v1.0.bin"
 
 [wake_word]
 phrases = [

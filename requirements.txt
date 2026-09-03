@@ -2,3 +2,7 @@
 
 # Phase 0.3 - config
 python-dotenv==1.2.3
+
+# Phase 1.2 - TTS engine (Kokoro, local/offline)
+kokoro-onnx==0.6.1
+sounddevice==0.5.6
