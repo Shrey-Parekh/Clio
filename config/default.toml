@@ -46,18 +46,11 @@ vad_end_silence_ms = 700     # continuous silence needed before a turn is consid
 [wake_word]
 phrases = [
     "Hey Clio",
-    "Wakey wakey Clio",
-    "Hello Clio",
-    "Listen Clio",
-    "Clio wake up",
-    "Ok Clio",
-    "Okay Clio",
     "Hi Clio",
-    "Clio help",
-    "Ask Clio",
-    "Quick question Clio",
-    "Clio are you listening",
-    "Hey there Clio",
+    "Hello Clio",
+    "Good morning Clio",
+    "Clio wake up",
+    "Daddy is home Clio",
 ]
 threshold = 0.4
 
