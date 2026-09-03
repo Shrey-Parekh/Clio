@@ -67,7 +67,11 @@
 
   ### 1b - The brain
 
-  - [ ] **1.6** LLM provider interface, Groq + local fallback - streaming responses, timeout handling, tier selection (fast/default/reasoning) exposed as one clean seam so swapping or adding a model is a config change. Groq key verified working (Sept 2026) across all three tiers, sub-second on fast/reasoning. Falls back to local Ollama (`qwen3:8b`) when Groq's unreachable - this is also where 2.3's retry/fallback logic gets its first real exercise, pulled forward from Phase 2 rather than stubbed.
+  - [x] **1.6** LLM provider interface, Groq + local fallback - `clio/llm/provider.py`. `LLMProvider` ABC (`stream()` + a `complete()` convenience wrapper), `GroqProvider`, `OllamaProvider`, `FallbackLLMProvider` composing the two. Tier selection (fast/default/reasoning) is one config lookup away, matching `LLMConfig.model_for()`/`effort_for()` from 1.4's benchmarking.
+    - Verified live across all 3 Groq tiers (sub-second), the real local Ollama fallback (not mocked), and the fallback path triggered by a genuine failure (a real nonexistent model name, not a simulated exception) - confirmed it actually falls through to a working local answer, not just that it doesn't crash.
+    - This is where 2.3's retry/fallback requirement gets its first real exercise rather than being stubbed - every LLM call goes through `FallbackLLMProvider`.
+    - Found and fixed during verification: the first retry design treated every Groq failure the same, so a permanent error (bad model name, invalid key - a 404/400/401, never fixable by retrying) still burned a full retry-with-backoff cycle before falling back. Split into `LLMError` (transient, retried) vs `LLMPermanentError` (skips straight to fallback) based on Groq's actual exception taxonomy. Verified both paths distinctly, not just the end-to-end outcome.
+    - Ollama's `/api/chat` stream separates `thinking` from `content` as distinct fields - `OllamaProvider` reads only `content`, so `qwen3:8b`'s reasoning never leaks into what gets spoken, same guarantee `gpt-oss` gave on the Groq side.
   - [ ] **1.7** Tool calling with schema validation - the model picks a capability and supplies arguments; invalid arguments are rejected and retried, never executed blind
   - [ ] **1.8** Session memory - rolling conversation context with trimming and summarisation so the window never blows
   - [ ] **1.9** Error surfacing - every failure spoken in plain language. No silent no-ops, no dead prompt.

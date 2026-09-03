@@ -1,0 +1,216 @@
+"""LLM provider behind one interface: streaming, tiered, with retry/backoff and a
+local fallback when the primary is unreachable.
+
+This is where 2.3's retry/fallback requirement gets its first real exercise rather
+than being stubbed - every LLM call in Clio goes through FallbackLLMProvider, so
+the network-down path is exercised by construction, not bolted on later.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+
+from clio.core.config import Config
+from clio.core.logging import get_logger
+
+log = get_logger("clio.llm.provider")
+
+Message = dict[str, str]  # {"role": "user"|"assistant"|"system", "content": "..."}
+
+_MAX_RETRIES = 2
+_BASE_BACKOFF_S = 0.5
+_REQUEST_TIMEOUT_S = 20.0
+
+
+class LLMError(Exception):
+    """A provider call failed. Transient by default - worth retrying."""
+
+
+class LLMPermanentError(LLMError):
+    """A provider call failed in a way retrying can't fix (bad model name, auth
+    failure, malformed request). FallbackLLMProvider skips the retry-with-backoff
+    delay for these and falls back immediately instead of wasting time on retries
+    that can never succeed.
+    """
+
+
+class LLMProvider(ABC):
+    @abstractmethod
+    def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
+        """Yield response text chunks as they arrive."""
+
+    async def complete(self, messages: list[Message], tier: str = "default") -> str:
+        """Non-streaming convenience: collect the full stream into one string."""
+        chunks = [chunk async for chunk in self.stream(messages, tier)]
+        return "".join(chunks)
+
+
+class GroqProvider(LLMProvider):
+    def __init__(self, config: Config):
+        self._config = config
+        self._client = None
+
+    def _ensure_client(self):
+        if self._client is None:
+            from groq import Groq
+
+            self._client = Groq(api_key=Config.secret(self._config.llm.provider_secret_name()))
+        return self._client
+
+    async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
+        import groq
+
+        model = self._config.llm.model_for(tier)
+        effort = self._config.llm.effort_for(tier)
+        client = self._ensure_client()
+        loop = asyncio.get_running_loop()
+
+        def _open_stream():
+            return client.chat.completions.create(
+                model=model,
+                messages=messages,
+                stream=True,
+                reasoning_effort=effort,
+                timeout=_REQUEST_TIMEOUT_S,
+            )
+
+        try:
+            groq_stream = await asyncio.wait_for(loop.run_in_executor(None, _open_stream), timeout=_REQUEST_TIMEOUT_S)
+        except (groq.APIConnectionError, groq.APITimeoutError, groq.RateLimitError, groq.InternalServerError) as exc:
+            # Transient: network blip, momentary rate limit, Groq-side 5xx. Worth retrying.
+            raise LLMError(f"Groq unreachable: {exc}") from exc
+        except (
+            groq.AuthenticationError,
+            groq.BadRequestError,
+            groq.NotFoundError,
+            groq.PermissionDeniedError,
+            groq.UnprocessableEntityError,
+        ) as exc:
+            # Permanent: bad model name, invalid key, malformed request. No number of
+            # retries fixes a wrong model name - skip straight to fallback.
+            raise LLMPermanentError(f"Groq request failed: {exc}") from exc
+        except groq.GroqError as exc:
+            raise LLMError(f"Groq request failed: {exc}") from exc
+
+        def _next_chunk(it):
+            try:
+                return next(it), False
+            except StopIteration:
+                return None, True
+
+        it = iter(groq_stream)
+        while True:
+            try:
+                chunk, done = await asyncio.wait_for(loop.run_in_executor(None, _next_chunk, it), timeout=_REQUEST_TIMEOUT_S)
+            except asyncio.TimeoutError as exc:
+                raise LLMError(f"Groq stream stalled (tier={tier})") from exc
+            if done:
+                return
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+
+class OllamaProvider(LLMProvider):
+    """Local fallback via Ollama. Reads only message.content, not message.thinking -
+    reasoning models (qwen3) stream those as separate fields, so this naturally
+    excludes think-block text from what gets spoken, same as Groq's gpt-oss tiers.
+    """
+
+    def __init__(self, model: str, host: str):
+        self._model = model
+        self._host = host.rstrip("/")
+
+    async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
+        import urllib.error
+        import urllib.request
+
+        loop = asyncio.get_running_loop()
+        body = json.dumps({"model": self._model, "messages": messages, "stream": True}).encode()
+
+        def _open():
+            req = urllib.request.Request(
+                f"{self._host}/api/chat", data=body, headers={"Content-Type": "application/json"}
+            )
+            return urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_S)
+
+        try:
+            resp = await asyncio.wait_for(loop.run_in_executor(None, _open), timeout=_REQUEST_TIMEOUT_S)
+        except (urllib.error.URLError, OSError, asyncio.TimeoutError) as exc:
+            raise LLMError(f"Ollama unreachable at {self._host}: {exc}") from exc
+
+        def _read_line():
+            line = resp.readline()
+            return line if line else None
+
+        while True:
+            try:
+                line = await asyncio.wait_for(loop.run_in_executor(None, _read_line), timeout=_REQUEST_TIMEOUT_S)
+            except asyncio.TimeoutError as exc:
+                raise LLMError("Ollama stream stalled") from exc
+            if line is None:
+                return
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            content = obj.get("message", {}).get("content", "")
+            if content:
+                yield content
+            if obj.get("done"):
+                return
+
+
+class FallbackLLMProvider(LLMProvider):
+    """Primary provider with retry+backoff; falls back to a secondary provider
+    (typically local) if the primary is exhausted. The fallback path is real,
+    not simulated - it's the actual OllamaProvider, exercised on every genuine outage.
+    """
+
+    def __init__(self, primary: LLMProvider, fallback: LLMProvider):
+        self._primary = primary
+        self._fallback = fallback
+
+    async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                async for chunk in self._primary.stream(messages, tier):
+                    yield chunk
+                return
+            except LLMPermanentError as exc:
+                # No point retrying a bad model name or invalid key - fall back now.
+                last_error = exc
+                log.warning(
+                    "Primary LLM failed permanently, skipping retries",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
+                break
+            except LLMError as exc:
+                last_error = exc
+                if attempt < _MAX_RETRIES:
+                    backoff = _BASE_BACKOFF_S * (2**attempt)
+                    log.warning(
+                        "Primary LLM call failed, retrying",
+                        extra={"extra_fields": {"attempt": attempt + 1, "backoff_s": backoff, "error": str(exc)}},
+                    )
+                    await asyncio.sleep(backoff)
+
+        log.error(
+            "Primary LLM unavailable, falling back to local model",
+            extra={"extra_fields": {"error": str(last_error)}},
+        )
+        try:
+            async for chunk in self._fallback.stream(messages, tier):
+                yield chunk
+        except LLMError as exc:
+            raise LLMError(f"Both primary and fallback LLM failed. Primary: {last_error}. Fallback: {exc}") from exc
+
+
+def build_default_provider(config: Config) -> FallbackLLMProvider:
+    primary = GroqProvider(config)
+    fallback = OllamaProvider(config.llm.local_fallback_model, config.llm.local_fallback_host)
+    return FallbackLLMProvider(primary, fallback)
