@@ -12,6 +12,7 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 
 from clio.core.config import Config
 from clio.core.logging import get_logger
@@ -19,6 +20,28 @@ from clio.core.logging import get_logger
 log = get_logger("clio.llm.provider")
 
 Message = dict[str, str]  # {"role": "user"|"assistant"|"system", "content": "..."}
+
+
+@dataclass(frozen=True)
+class ToolSchema:
+    """One tool the model can choose to call. `parameters` is a JSON Schema object
+    (the standard OpenAI/Groq/Ollama "function.parameters" shape)."""
+
+    name: str
+    description: str
+    parameters: dict = field(default_factory=lambda: {"type": "object", "properties": {}})
+
+    def to_api_dict(self) -> dict:
+        return {
+            "type": "function",
+            "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
+        }
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: dict
 
 _MAX_RETRIES = 2
 _BASE_BACKOFF_S = 0.5
@@ -46,6 +69,13 @@ class LLMProvider(ABC):
         """Non-streaming convenience: collect the full stream into one string."""
         chunks = [chunk async for chunk in self.stream(messages, tier)]
         return "".join(chunks)
+
+    @abstractmethod
+    async def call_tool(self, messages: list[Message], tools: list[ToolSchema], tier: str = "fast") -> ToolCall | None:
+        """Ask the model to pick a tool for this conversation, or None if it
+        responds with plain conversation instead - a valid, common outcome.
+        Not streamed: tool arguments are JSON and need to arrive whole to parse.
+        """
 
 
 class GroqProvider(LLMProvider):
@@ -113,6 +143,51 @@ class GroqProvider(LLMProvider):
             if delta:
                 yield delta
 
+    async def call_tool(self, messages: list[Message], tools: list[ToolSchema], tier: str = "fast") -> ToolCall | None:
+        import groq
+
+        model = self._config.llm.model_for(tier)
+        effort = self._config.llm.effort_for(tier)
+        client = self._ensure_client()
+        loop = asyncio.get_running_loop()
+
+        def _call():
+            return client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=[t.to_api_dict() for t in tools],
+                tool_choice="auto",
+                reasoning_effort=effort,
+                timeout=_REQUEST_TIMEOUT_S,
+            )
+
+        try:
+            resp = await asyncio.wait_for(loop.run_in_executor(None, _call), timeout=_REQUEST_TIMEOUT_S)
+        except (groq.APIConnectionError, groq.APITimeoutError, groq.RateLimitError, groq.InternalServerError) as exc:
+            raise LLMError(f"Groq unreachable: {exc}") from exc
+        except (
+            groq.AuthenticationError,
+            groq.BadRequestError,
+            groq.NotFoundError,
+            groq.PermissionDeniedError,
+            groq.UnprocessableEntityError,
+        ) as exc:
+            raise LLMPermanentError(f"Groq request failed: {exc}") from exc
+        except groq.GroqError as exc:
+            raise LLMError(f"Groq request failed: {exc}") from exc
+        except asyncio.TimeoutError as exc:
+            raise LLMError("Groq tool call timed out") from exc
+
+        calls = resp.choices[0].message.tool_calls
+        if not calls:
+            return None
+        first = calls[0]
+        try:
+            arguments = json.loads(first.function.arguments)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"Groq returned malformed tool arguments JSON: {exc}") from exc
+        return ToolCall(name=first.function.name, arguments=arguments)
+
 
 class OllamaProvider(LLMProvider):
     """Local fallback via Ollama. Reads only message.content, not message.thinking -
@@ -163,6 +238,40 @@ class OllamaProvider(LLMProvider):
             if obj.get("done"):
                 return
 
+    async def call_tool(self, messages: list[Message], tools: list[ToolSchema], tier: str = "fast") -> ToolCall | None:
+        import urllib.error
+        import urllib.request
+
+        loop = asyncio.get_running_loop()
+        body = json.dumps(
+            {"model": self._model, "messages": messages, "tools": [t.to_api_dict() for t in tools], "stream": False}
+        ).encode()
+
+        def _call():
+            req = urllib.request.Request(
+                f"{self._host}/api/chat", data=body, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT_S) as resp:
+                return json.load(resp)
+
+        try:
+            resp = await asyncio.wait_for(loop.run_in_executor(None, _call), timeout=_REQUEST_TIMEOUT_S)
+        except (urllib.error.URLError, OSError, asyncio.TimeoutError) as exc:
+            raise LLMError(f"Ollama unreachable at {self._host}: {exc}") from exc
+
+        calls = resp.get("message", {}).get("tool_calls")
+        if not calls:
+            return None
+        first = calls[0]
+        # Ollama's arguments come back already as a dict, unlike Groq's JSON string.
+        arguments = first["function"]["arguments"]
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise LLMError(f"Ollama returned malformed tool arguments JSON: {exc}") from exc
+        return ToolCall(name=first["function"]["name"], arguments=arguments)
+
 
 class FallbackLLMProvider(LLMProvider):
     """Primary provider with retry+backoff; falls back to a secondary provider
@@ -206,6 +315,37 @@ class FallbackLLMProvider(LLMProvider):
         try:
             async for chunk in self._fallback.stream(messages, tier):
                 yield chunk
+        except LLMError as exc:
+            raise LLMError(f"Both primary and fallback LLM failed. Primary: {last_error}. Fallback: {exc}") from exc
+
+    async def call_tool(self, messages: list[Message], tools: list[ToolSchema], tier: str = "fast") -> ToolCall | None:
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return await self._primary.call_tool(messages, tools, tier)
+            except LLMPermanentError as exc:
+                last_error = exc
+                log.warning(
+                    "Primary LLM failed permanently on tool call, skipping retries",
+                    extra={"extra_fields": {"error": str(exc)}},
+                )
+                break
+            except LLMError as exc:
+                last_error = exc
+                if attempt < _MAX_RETRIES:
+                    backoff = _BASE_BACKOFF_S * (2**attempt)
+                    log.warning(
+                        "Primary LLM tool call failed, retrying",
+                        extra={"extra_fields": {"attempt": attempt + 1, "backoff_s": backoff, "error": str(exc)}},
+                    )
+                    await asyncio.sleep(backoff)
+
+        log.error(
+            "Primary LLM unavailable for tool call, falling back to local model",
+            extra={"extra_fields": {"error": str(last_error)}},
+        )
+        try:
+            return await self._fallback.call_tool(messages, tools, tier)
         except LLMError as exc:
             raise LLMError(f"Both primary and fallback LLM failed. Primary: {last_error}. Fallback: {exc}") from exc
 

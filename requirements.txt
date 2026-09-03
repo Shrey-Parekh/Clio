@@ -23,3 +23,6 @@ nvidia-cudnn-cu12==9.25.1.1
 # Phase 1.5 - wake word (openWakeWord, raw ONNX runtime - training happens in WSL,
 # see docs/wake_word_training.md; this is only the Windows runtime dependency)
 openwakeword==0.6.0
+
+# Phase 1.7 - tool calling schema validation
+jsonschema==4.26.0
