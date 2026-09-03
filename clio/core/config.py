@@ -76,6 +76,15 @@ class AudioConfig:
 class WakeWordConfig:
     phrases: tuple[str, ...]
     threshold: float
+    models_dir: str
+
+    @staticmethod
+    def slug(phrase: str) -> str:
+        return phrase.lower().replace(" ", "_")
+
+    def model_paths(self) -> dict[str, str]:
+        """Map each configured phrase to its trained .onnx model path."""
+        return {phrase: str(Path(self.models_dir) / f"{self.slug(phrase)}.onnx") for phrase in self.phrases}
 
 
 @dataclass(frozen=True)
@@ -190,6 +199,9 @@ def load_config(root: Path | None = None) -> Config:
         wake_word = WakeWordConfig(
             phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
             threshold=float(_env_override("CLIO_WAKE_THRESHOLD", str(raw["wake_word"]["threshold"]))),
+            models_dir=str(
+                root / _env_override("CLIO_WAKE_MODELS_DIR", raw["wake_word"]["models_dir"])
+            ),
         )
         persona = PersonaConfig(
             name=_env_override("CLIO_PERSONA", raw["persona"]["name"]),
@@ -253,6 +265,13 @@ def _validate(config: Config) -> None:
         errors.append("wake_word.phrases must not be empty")
     elif any(not phrase.strip() for phrase in config.wake_word.phrases):
         errors.append("wake_word.phrases must not contain blank entries")
+    else:
+        for phrase, model_path in config.wake_word.model_paths().items():
+            if not Path(model_path).is_file():
+                errors.append(
+                    f"wake_word phrase '{phrase}' has no trained model at '{model_path}' - "
+                    "train it (see docs/wake_word_training.md) or remove it from wake_word.phrases"
+                )
     if config.llm.provider not in _VALID_LLM_PROVIDERS:
         errors.append(f"llm.provider '{config.llm.provider}' must be one of {sorted(_VALID_LLM_PROVIDERS)}")
     for tier in ("fast", "default", "reasoning"):

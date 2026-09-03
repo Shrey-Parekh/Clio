@@ -44,15 +44,18 @@ vad_min_speech_ms = 250      # continuous speech needed before a turn is confirm
 vad_end_silence_ms = 700     # continuous silence needed before a turn is considered ended
 
 [wake_word]
+# "Daddy is home Clio" was dropped - it failed training twice at the identical score,
+# a repeat rather than noise. Likely too long/sentence-shaped for openWakeWord's embedding
+# window, which appears tuned for short 1-3 word phrases. See docs/wake_word_training.md.
 phrases = [
     "Hey Clio",
     "Hi Clio",
     "Hello Clio",
     "Good morning Clio",
     "Clio wake up",
-    "Daddy is home Clio",
 ]
 threshold = 0.4
+models_dir = "models/wake_words"
 
 [persona]
 name = "default"

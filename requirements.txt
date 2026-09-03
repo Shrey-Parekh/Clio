@@ -19,3 +19,7 @@ soundfile==0.14.0
 # Windows without the PATH fix in clio/speech/stt.py - see _ensure_cuda_dlls_on_path.
 nvidia-cublas-cu12==12.9.2.10
 nvidia-cudnn-cu12==9.25.1.1
+
+# Phase 1.5 - wake word (openWakeWord, raw ONNX runtime - training happens in WSL,
+# see docs/wake_word_training.md; this is only the Windows runtime dependency)
+openwakeword==0.6.0
