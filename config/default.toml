@@ -6,9 +6,18 @@
 # Provider must match one of the secrets in .env: groq -> GROQ_API_KEY, gemini -> GEMINI_API_KEY.
 provider = "groq"
 # Three tiers, picked per task rather than one model for everything.
+# A tier is (model + reasoning effort). Benchmarked Sept 2026 - see docs note below.
 model_fast = "openai/gpt-oss-20b"           # routing decisions, simple lookups, low-stakes classification
-model_default = "qwen/qwen3.6-27b"          # general conversation, most tool calls
-model_reasoning = "openai/gpt-oss-120b"     # multi-step planning, anything that benefits from extended thinking
+model_default = "openai/gpt-oss-120b"       # general conversation, most tool calls - what gets spoken
+model_reasoning = "openai/gpt-oss-120b"     # multi-step planning, where thinking is worth the wait
+
+# gpt-oss exposes reasoning effort as a request parameter, and keeps its reasoning in a
+# separate field rather than inline <think> tags - so nothing has to be stripped before
+# the text is spoken. qwen/qwen3.6-27b was the original default and was dropped: it emitted
+# 848+ chars of inline <think> for a one-line answer, which breaks streaming TTS.
+effort_fast = "low"
+effort_default = "low"
+effort_reasoning = "high"
 # Used when Groq is unreachable or the network is down - runs entirely on this machine.
 local_fallback_model = "qwen3:8b"
 local_fallback_host = "http://localhost:11434"

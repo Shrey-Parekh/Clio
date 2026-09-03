@@ -15,6 +15,7 @@ _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 _VALID_TTS_ENGINES = {"edge", "kokoro", "elevenlabs", "gemini"}
 _VALID_STT_DEVICES = {"cuda", "cpu"}
 _VALID_LLM_PROVIDERS = {"groq", "gemini"}
+_VALID_EFFORTS = {"low", "medium", "high"}
 _PROVIDER_SECRET_NAME = {"groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
 
 
@@ -28,12 +29,21 @@ class LLMConfig:
     model_fast: str
     model_default: str
     model_reasoning: str
+    effort_fast: str
+    effort_default: str
+    effort_reasoning: str
     local_fallback_model: str
     local_fallback_host: str
 
     def model_for(self, tier: str = "default") -> str:
         try:
             return getattr(self, f"model_{tier}")
+        except AttributeError as exc:
+            raise ConfigError(f"Unknown LLM tier '{tier}'. Use fast, default, or reasoning.") from exc
+
+    def effort_for(self, tier: str = "default") -> str:
+        try:
+            return getattr(self, f"effort_{tier}")
         except AttributeError as exc:
             raise ConfigError(f"Unknown LLM tier '{tier}'. Use fast, default, or reasoning.") from exc
 
@@ -116,6 +126,9 @@ def load_config(root: Path | None = None) -> Config:
             model_fast=_env_override("CLIO_LLM_MODEL_FAST", raw["llm"]["model_fast"]),
             model_default=_env_override("CLIO_LLM_MODEL_DEFAULT", raw["llm"]["model_default"]),
             model_reasoning=_env_override("CLIO_LLM_MODEL_REASONING", raw["llm"]["model_reasoning"]),
+            effort_fast=_env_override("CLIO_LLM_EFFORT_FAST", raw["llm"]["effort_fast"]).lower(),
+            effort_default=_env_override("CLIO_LLM_EFFORT_DEFAULT", raw["llm"]["effort_default"]).lower(),
+            effort_reasoning=_env_override("CLIO_LLM_EFFORT_REASONING", raw["llm"]["effort_reasoning"]).lower(),
             local_fallback_model=_env_override(
                 "CLIO_LLM_LOCAL_FALLBACK_MODEL", raw["llm"]["local_fallback_model"]
             ),
@@ -175,6 +188,10 @@ def _validate(config: Config) -> None:
         errors.append("wake_word.phrases must not contain blank entries")
     if config.llm.provider not in _VALID_LLM_PROVIDERS:
         errors.append(f"llm.provider '{config.llm.provider}' must be one of {sorted(_VALID_LLM_PROVIDERS)}")
+    for tier in ("fast", "default", "reasoning"):
+        effort = config.llm.effort_for(tier)
+        if effort not in _VALID_EFFORTS:
+            errors.append(f"llm.effort_{tier} '{effort}' must be one of {sorted(_VALID_EFFORTS)}")
 
     if errors:
         raise ConfigError("Invalid configuration:\n  - " + "\n  - ".join(errors))

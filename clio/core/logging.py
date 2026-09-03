@@ -42,11 +42,16 @@ def setup_logging(level: str = "INFO", root: Path | None = None) -> None:
     """Configure the root logger. Call once, at startup."""
     root = root or Path(__file__).resolve().parents[2]
     log_dir = root / _LOG_DIR_NAME
-    log_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger()
     logger.setLevel(level)
-    logger.handlers.clear()
+
+    # Release file handles deterministically rather than leaning on refcount GC
+    # to do it. Matters if setup_logging is ever called twice (config reload).
+    for existing in logger.handlers[:]:
+        existing.close()
+        logger.removeHandler(existing)
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(logging.Formatter(_CONSOLE_FORMAT, datefmt=_CONSOLE_DATE_FORMAT))
