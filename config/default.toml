@@ -31,6 +31,14 @@ stt_device = "cuda"       # cuda | cpu
 kokoro_model_path = "models/kokoro-v1.0.fp16-gpu.onnx"
 kokoro_voices_path = "models/voices-v1.0.bin"
 
+[audio]
+# Silero VAD, 16kHz variant, no torch dependency - raw ONNX + onnxruntime, same
+# pattern as Kokoro. Not committed, see .gitignore.
+vad_model_path = "models/silero_vad_16k.onnx"
+vad_threshold = 0.5          # >= this speech probability counts as "speaking"
+vad_min_speech_ms = 250      # continuous speech needed before a turn is confirmed started
+vad_end_silence_ms = 700     # continuous silence needed before a turn is considered ended
+
 [wake_word]
 phrases = [
     "Hey Clio",

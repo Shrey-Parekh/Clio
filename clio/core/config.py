@@ -62,6 +62,14 @@ class SpeechConfig:
 
 
 @dataclass(frozen=True)
+class AudioConfig:
+    vad_model_path: str
+    vad_threshold: float
+    vad_min_speech_ms: float
+    vad_end_silence_ms: float
+
+
+@dataclass(frozen=True)
 class WakeWordConfig:
     phrases: tuple[str, ...]
     threshold: float
@@ -82,6 +90,7 @@ class RuntimeConfig:
 class Config:
     llm: LLMConfig
     speech: SpeechConfig
+    audio: AudioConfig
     wake_word: WakeWordConfig
     persona: PersonaConfig
     runtime: RuntimeConfig
@@ -159,6 +168,20 @@ def load_config(root: Path | None = None) -> Config:
                 root / _env_override("CLIO_KOKORO_VOICES_PATH", raw["speech"]["kokoro_voices_path"])
             ),
         )
+        audio = AudioConfig(
+            vad_model_path=str(
+                root / _env_override("CLIO_VAD_MODEL_PATH", raw["audio"]["vad_model_path"])
+            ),
+            vad_threshold=float(
+                _env_override("CLIO_VAD_THRESHOLD", str(raw["audio"]["vad_threshold"]))
+            ),
+            vad_min_speech_ms=float(
+                _env_override("CLIO_VAD_MIN_SPEECH_MS", str(raw["audio"]["vad_min_speech_ms"]))
+            ),
+            vad_end_silence_ms=float(
+                _env_override("CLIO_VAD_END_SILENCE_MS", str(raw["audio"]["vad_end_silence_ms"]))
+            ),
+        )
         wake_word = WakeWordConfig(
             phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
             threshold=float(_env_override("CLIO_WAKE_THRESHOLD", str(raw["wake_word"]["threshold"]))),
@@ -175,7 +198,7 @@ def load_config(root: Path | None = None) -> Config:
     except ValueError as exc:
         raise ConfigError(f"Malformed config value: {exc}") from exc
 
-    config = Config(llm=llm, speech=speech, wake_word=wake_word, persona=persona, runtime=runtime)
+    config = Config(llm=llm, speech=speech, audio=audio, wake_word=wake_word, persona=persona, runtime=runtime)
     _validate(config)
     return config
 
@@ -200,6 +223,17 @@ def _validate(config: Config) -> None:
         ):
             if not Path(path).is_file():
                 errors.append(f"speech.{label} '{path}' does not exist - see .env.example for how to download it")
+    if not Path(config.audio.vad_model_path).is_file():
+        errors.append(
+            f"audio.vad_model_path '{config.audio.vad_model_path}' does not exist - "
+            "see .env.example for how to download it"
+        )
+    if not (0.0 <= config.audio.vad_threshold <= 1.0):
+        errors.append(f"audio.vad_threshold {config.audio.vad_threshold} must be between 0.0 and 1.0")
+    if config.audio.vad_min_speech_ms <= 0:
+        errors.append(f"audio.vad_min_speech_ms {config.audio.vad_min_speech_ms} must be positive")
+    if config.audio.vad_end_silence_ms <= 0:
+        errors.append(f"audio.vad_end_silence_ms {config.audio.vad_end_silence_ms} must be positive")
     if config.speech.stt_device not in _VALID_STT_DEVICES:
         errors.append(
             f"speech.stt_device '{config.speech.stt_device}' must be one of {sorted(_VALID_STT_DEVICES)}"
