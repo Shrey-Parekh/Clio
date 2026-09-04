@@ -5,6 +5,8 @@ referential follow-ups ("do that again", "the second one") still resolve correct
 
 from __future__ import annotations
 
+from clio.core.errors import report_error
+from clio.core.events import EventBus
 from clio.core.logging import get_logger
 from clio.llm.provider import LLMProvider, Message
 
@@ -31,6 +33,7 @@ class ConversationMemory:
         max_tokens: int = 6000,
         system_prompt: str | None = None,
         keep_recent_turns: int = 6,
+        bus: EventBus | None = None,
     ):
         self._provider = provider
         self._max_tokens = max_tokens
@@ -38,6 +41,7 @@ class ConversationMemory:
         self._keep_recent_turns = keep_recent_turns
         self._summary: str | None = None
         self._messages: list[Message] = []
+        self._bus = bus
 
     def add_user(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
@@ -103,8 +107,8 @@ class ConversationMemory:
             summary = result.strip()
             if summary:
                 return summary
-        except Exception:
-            log.warning("Summarization call failed, using naive fallback", exc_info=True)
+        except Exception as exc:
+            await report_error(self._bus, exc, context="conversation summarization", source="clio.llm.memory")
 
         return self._naive_summary(messages, previous_summary)
 

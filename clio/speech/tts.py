@@ -14,6 +14,8 @@ import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from clio.core.errors import report_error
+from clio.core.events import EventBus
 from clio.core.logging import get_logger
 
 log = get_logger("clio.speech.tts")
@@ -66,13 +68,21 @@ class SpeechEngine(ABC):
 class KokoroSpeechEngine(SpeechEngine):
     """Local, offline TTS via Kokoro ONNX. Lazy-loads the model on first use."""
 
-    def __init__(self, model_path: str | Path, voices_path: str | Path, voice: str, speed: float = 1.0):
+    def __init__(
+        self,
+        model_path: str | Path,
+        voices_path: str | Path,
+        voice: str,
+        speed: float = 1.0,
+        bus: EventBus | None = None,
+    ):
         self._model_path = str(model_path)
         self._voices_path = str(voices_path)
         self._voice = voice
         self._speed = speed
         self._kokoro = None
         self._cancelled = asyncio.Event()
+        self._bus = bus
 
     def _ensure_loaded(self):
         if self._kokoro is None:
@@ -110,8 +120,8 @@ class KokoroSpeechEngine(SpeechEngine):
             return None
         try:
             return render_task.result()
-        except Exception:
-            log.error("TTS synthesis failed", exc_info=True, extra={"extra_fields": {"sentence": sentence}})
+        except Exception as exc:
+            await report_error(self._bus, exc, context=f"TTS synthesis for {sentence!r}", source="clio.speech.tts")
             return None
 
     async def speak(self, text: str) -> None:
