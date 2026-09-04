@@ -92,10 +92,6 @@ class TimerCapability:
         self._active[timer_id] = task
         return f"Okay, timer set for {format_duration(duration_s)}."
 
-    @property
-    def active_count(self) -> int:
-        return len(self._active)
-
     async def _run(self, timer_id: str, duration_s: float) -> None:
         try:
             await asyncio.sleep(duration_s)

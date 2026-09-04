@@ -1,11 +1,8 @@
 """Short non-speech audio cues.
 
-The wake chime exists because of a real finding from the first live mic test:
-the gap between saying the wake word and hearing anything back is dominated by
-STT and the model, and with no feedback in between you assume it didn't hear
-you and just wait. Twelve of the twenty seconds in that first test were the
-user waiting on silence. A chime costs nothing - synthesized numpy, no model,
-no network - and it fires the instant the wake word matches.
+The wake chime acknowledges the wake word immediately, while STT and the model
+are still working. Without it there is no feedback for several seconds and the
+speaker assumes they were not heard.
 """
 
 from __future__ import annotations
@@ -32,16 +29,14 @@ def _tone(freq_hz: float, duration_s: float, sample_rate: int = CUE_SAMPLE_RATE)
 
 
 def wake_cue(volume: float = 0.25) -> np.ndarray:
-    """Two rising notes - short enough not to delay anything, distinct enough
-    to read as "I'm listening" rather than as part of a reply."""
+    """Two rising notes: short enough not to delay the turn, distinct enough
+    not to be mistaken for speech."""
     return np.concatenate([_tone(660.0, 0.07), _tone(880.0, 0.09)]) * volume
 
 
 def play_wake_cue(volume: float = 0.25) -> None:
-    """Fire and forget: starts playback and returns immediately, so the cue
-    never sits between the wake word and listening for the actual request.
-    A failure here is cosmetic - log it and carry on rather than derailing
-    a turn over a chime.
+    """Starts playback and returns immediately, so the cue never delays
+    listening. Failure is cosmetic, so it is logged rather than raised.
     """
     try:
         import sounddevice as sd

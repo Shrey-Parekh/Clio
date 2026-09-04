@@ -146,9 +146,8 @@ class Orchestrator:
             if phrase is None:
                 continue
 
-            # Immediately, before STT or the model does anything: without this the
-            # user gets silence and assumes it didn't hear them (12 of the 20
-            # seconds in the first live test were exactly that).
+            # Before STT or the model runs, so the wake word is acknowledged
+            # while the slow work happens.
             play_wake_cue()
             self._woke_at = time.monotonic()
             log.info("Wake word triggered", extra={"extra_fields": {"phrase": phrase}})
@@ -157,11 +156,11 @@ class Orchestrator:
             await self._conversation_loop()
 
     async def _warm_up_models(self) -> None:
-        """Load STT and TTS in the background at startup. They are lazy-loaded by
-        design (idle footprint), but paying for both on the first request cost
-        ~7s of the first live test. Doing it here keeps boot itself fast while
-        making the first real request fast too; set memory.prewarm = false to
-        trade responsiveness back for a lighter idle GPU.
+        """Load STT and TTS in the background at startup.
+
+        Both are lazy by design to keep the idle footprint down, but paying for
+        both on the first request is several seconds of dead air. Set
+        memory.prewarm = false to trade responsiveness for a lighter idle GPU.
         """
         for label, engine in (("stt", self._stt), ("tts", self._speaker.engine)):
             try:
@@ -224,10 +223,8 @@ class Orchestrator:
                 # believing she said things the user never heard.
                 heard = (outcome.spoken_text or "").strip()
                 if outcome.interrupted:
-                    # Worded as "he stopped you, move on", not "unfinished".
-                    # The earlier wording read to the model as an incomplete
-                    # answer, so it retried the same content next turn - three
-                    # near-identical replies in a row in a live session.
+                    # Worded as "stopped deliberately", not "unfinished": the
+                    # latter reads as a prompt to retry the same content.
                     heard = (
                         f"{heard} [he cut you off here - he had heard enough, do not repeat this]"
                         if heard

@@ -1,20 +1,15 @@
-"""Long-term memory: everything Clio has been told, kept as plain files you can
-read and edit, with a rebuildable index so recall never means loading it all.
+"""Long-term memory as plain files, with a rebuildable index over them.
 
-Three layers, deliberately separate:
-  sessions/*.jsonl   every turn, append-only - the complete record
-  facts.md           the distilled bits worth carrying forever, hand-editable
-  index.sqlite3      derived FTS5 index over the turns
+    sessions/*.jsonl   every turn, append-only
+    facts.md           distilled durable facts, hand-editable
+    index.sqlite3      derived FTS5 index
 
-The plain files are the source of truth. The index is a cache - delete it and
-`rebuild_index()` reconstructs it exactly, so nothing important ever lives only
-inside a database. That's the "inspectable and editable, not an opaque blob"
-requirement from the brief, and it's also why this doesn't use a graph store:
-those need a server running alongside Clio and an LLM call per ingest, which
-costs idle footprint and API budget for recall that FTS5 already does here.
+The files are the source of truth; `rebuild_index()` reconstructs the database
+from them, so nothing lives only inside it. A graph store was considered and
+rejected: it needs a server alongside Clio and an LLM call per ingest, for
+recall FTS5 already covers.
 
-Cost control: nothing loads the whole history. A question retrieves the facts
-(small, always) plus the top few matching turns, and only those enter context.
+Recall never loads the whole history - facts plus the top few matching turns.
 """
 
 from __future__ import annotations
@@ -57,9 +52,8 @@ def _now() -> str:
 
 
 def _normalize(text: str) -> str:
-    """For dedupe comparison only. Trailing punctuation is stripped because
-    otherwise "Boss" and "Boss." are stored as two separate durable facts,
-    which is exactly what happened in a live session."""
+    """For dedupe comparison only. Trailing punctuation is stripped so
+    "Boss" and "Boss." are not stored as two separate facts."""
     return " ".join(text.lower().split()).rstrip(".!?,;:")
 
 
@@ -195,17 +189,12 @@ class MemoryStore:
         ]
 
     def recall(self, query: str, limit: int = 4, exclude_session: str | None = None) -> str:
-        """Facts plus relevant things *the user* said before, as one block ready
-        to prime a model with. Empty string when there's nothing worth
-        recalling - callers should not add an empty system message.
+        """Facts plus relevant things the user said before, ready to prime a
+        model with. Empty when there is nothing worth recalling.
 
-        Deliberately never recalls her own replies. Feeding an assistant its own
-        past output back as "relevant context" is a self-reinforcing loop: it
-        answers, the answer is stored, the next question retrieves it, and it
-        answers the same way again. That is not theoretical - it produced three
-        near-identical definitions in a row in a live session while the user was
-        trying to tell a story. What he told her is worth remembering; what she
-        said back is not.
+        Never returns her own past replies. Feeding an assistant its own output
+        back as context is self-reinforcing: it repeats whatever it said last
+        time the topic came up.
         """
         parts: list[str] = []
 
@@ -307,9 +296,6 @@ class MemoryStore:
         self._db.commit()
         log.info("Memory index rebuilt", extra={"extra_fields": {"turns": count}})
         return count
-
-    def total_turns(self) -> int:
-        return int(self._db.execute("SELECT count(*) AS n FROM turns").fetchone()["n"])
 
     def close(self) -> None:
         self._db.close()

@@ -110,16 +110,10 @@ class FasterWhisperEngine(STTEngine):
         segments, _info = model.transcribe(
             audio,
             language="en",
-            # Biases the decoder's vocabulary. Without it, "Clio" came back as
-            # "Cleo" every single time in live use - 5 out of 5 - which then got
-            # written into long-term memory as the wrong name. Measured on
-            # synthesized probes: 3/6 correct without, 6/6 with, and slightly
-            # faster with, since the decoder stops hunting for alternatives.
+            # Biases decoding toward the assistant's name and domain terms,
+            # which are otherwise transcribed as commoner near-homophones.
             initial_prompt=self._initial_prompt,
-            # Guards Whisper's known repetition-loop failure mode on longer
-            # audio. Made no measurable difference on the short probes here;
-            # included because the downside is nil and the failure it prevents
-            # is ugly.
+            # Guards Whisper's repetition-loop failure mode on longer audio.
             condition_on_previous_text=False,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()

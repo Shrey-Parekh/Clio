@@ -43,12 +43,9 @@ class ToolCall:
     name: str
     arguments: dict
 
-# A backstop, not the brevity mechanism. Nothing bounded generation at all
-# before this, so one open-ended question could produce a 45-second monologue.
-# Set well above a normal spoken reply (~1-3 sentences) so it only catches
-# runaway output: a hard cap tight enough to enforce brevity would truncate
-# mid-sentence, which sounds worse than a long answer. Brevity itself is the
-# persona's job; this stops the pathological case.
+# Runaway backstop only. Set well above a normal spoken reply, because a cap
+# tight enough to enforce brevity truncates mid-sentence. Brevity is the
+# persona's job.
 _MAX_SPOKEN_TOKENS = 320
 
 _MAX_RETRIES = 2
@@ -218,8 +215,6 @@ class OllamaProvider(LLMProvider):
                 "model": self._model,
                 "messages": messages,
                 "stream": True,
-                # Same runaway backstop as the Groq path, so the offline
-                # fallback doesn't behave differently from the primary.
                 "options": {"num_predict": _MAX_SPOKEN_TOKENS},
             }
         ).encode()
