@@ -370,4 +370,5 @@ def _build_tts(config: Config, bus: EventBus | None) -> SpeechEngine:
         config.speech.tts_voice,
         speed=config.speech.tts_speed,
         bus=bus,
+        device=config.speech.tts_device,
     )

@@ -10,10 +10,12 @@ actual interrupt semantics the voice loop needs.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from clio.core.cuda import ensure_cuda_dlls_on_path
 from clio.core.errors import report_error
 from clio.core.events import EventBus
 from clio.core.logging import get_logger
@@ -80,6 +82,7 @@ class KokoroSpeechEngine(SpeechEngine):
         voice: str,
         speed: float = 1.0,
         bus: EventBus | None = None,
+        device: str = "cuda",
     ):
         self._model_path = str(model_path)
         self._voices_path = str(voices_path)
@@ -88,14 +91,30 @@ class KokoroSpeechEngine(SpeechEngine):
         self._kokoro = None
         self._cancelled = asyncio.Event()
         self._bus = bus
+        self._device = device
 
     def _ensure_loaded(self):
         if self._kokoro is None:
+            # The shipped model is fp16 built for GPU. Left to itself, ONNX Runtime
+            # picks TensorRT first (not installed here, and it fails loudly) or
+            # quietly lands on CPU, where fp16 runs through generic kernels roughly
+            # 30x slower and sounds worse. Pin the provider and put CUDA's DLLs on
+            # PATH before the session exists, since it can't be fixed afterwards.
+            if self._device == "cuda":
+                ensure_cuda_dlls_on_path()
+                os.environ.setdefault("ONNX_PROVIDER", "CUDAExecutionProvider")
+
             from kokoro_onnx import Kokoro
 
             log.info(
                 "Loading Kokoro model",
-                extra={"extra_fields": {"model_path": self._model_path, "voice": self._voice}},
+                extra={
+                    "extra_fields": {
+                        "model_path": self._model_path,
+                        "voice": self._voice,
+                        "device": self._device,
+                    }
+                },
             )
             self._kokoro = Kokoro(self._model_path, self._voices_path)
         return self._kokoro

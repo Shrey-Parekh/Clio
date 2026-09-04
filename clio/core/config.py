@@ -57,6 +57,7 @@ class SpeechConfig:
     tts_engine: str
     tts_voice: str
     tts_speed: float
+    tts_device: str
     stt_provider: str
     stt_model: str
     stt_device: str
@@ -72,6 +73,18 @@ class AudioConfig:
     vad_min_speech_ms: float
     vad_end_silence_ms: float
     conversation_follow_up_ms: float
+    input_device: str
+
+    def input_device_arg(self) -> int | str | None:
+        """AudioCapture's device param: None means "let sounddevice pick the
+        system default" - a bare int-looking string becomes an int (sounddevice
+        indexes devices numerically), anything else passes through as a name."""
+        if not self.input_device:
+            return None
+        try:
+            return int(self.input_device)
+        except ValueError:
+            return self.input_device
 
 
 @dataclass(frozen=True)
@@ -184,6 +197,7 @@ def load_config(root: Path | None = None) -> Config:
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),
             tts_voice=_env_override("CLIO_TTS_VOICE", raw["speech"]["tts_voice"]),
             tts_speed=float(_env_override("CLIO_TTS_SPEED", str(raw["speech"]["tts_speed"]))),
+            tts_device=_env_override("CLIO_TTS_DEVICE", raw["speech"].get("tts_device", "cuda")).lower(),
             stt_provider=_env_override("CLIO_STT_PROVIDER", raw["speech"]["stt_provider"]).lower(),
             stt_model=_env_override("CLIO_STT_MODEL", raw["speech"]["stt_model"]),
             stt_device=_env_override("CLIO_STT_DEVICE", raw["speech"]["stt_device"]),
@@ -213,6 +227,7 @@ def load_config(root: Path | None = None) -> Config:
                     "CLIO_CONVERSATION_FOLLOW_UP_MS", str(raw["audio"]["conversation_follow_up_ms"])
                 )
             ),
+            input_device=_env_override("CLIO_AUDIO_INPUT_DEVICE", raw["audio"].get("input_device", "")),
         )
         wake_word = WakeWordConfig(
             phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
@@ -280,6 +295,10 @@ def _validate(config: Config) -> None:
                 errors.append(f"speech.{label} '{path}' does not exist - see .env.example for how to download it")
     if config.speech.tts_speed <= 0:
         errors.append(f"speech.tts_speed {config.speech.tts_speed} must be positive")
+    if config.speech.tts_device not in _VALID_STT_DEVICES:
+        errors.append(
+            f"speech.tts_device '{config.speech.tts_device}' must be one of {sorted(_VALID_STT_DEVICES)}"
+        )
     if not Path(config.audio.vad_model_path).is_file():
         errors.append(
             f"audio.vad_model_path '{config.audio.vad_model_path}' does not exist - "

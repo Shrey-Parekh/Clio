@@ -26,6 +26,8 @@ local_fallback_host = "http://localhost:11434"
 tts_engine = "kokoro"     # edge | kokoro | elevenlabs | gemini
 tts_voice = "af_heart"    # picked from a 12-way comparison (5 sentences x 7 Edge/Kokoro voices, then +9 more Kokoro af_* voices)
 tts_speed = 1.0           # Kokoro speed multiplier - one voice, one speed, consistent across responses
+tts_device = "cuda"       # cuda | cpu. The shipped Kokoro model is fp16 built for GPU; on CPU it
+                          # runs ~30x slower and sounds noticeably worse. Needs onnxruntime-gpu.
 stt_provider = "local"    # local | groq - benchmarked equal accuracy (clean and at 5dB SNR),
                           # local is free/private/offline and doesn't burn Groq rate limits.
                           # groq is ~equally fast (0.22s vs 0.26s mean) if the GPU is busy elsewhere.
@@ -45,6 +47,8 @@ vad_min_speech_ms = 250      # continuous speech needed before a turn is confirm
 vad_end_silence_ms = 700     # continuous silence needed before a turn is considered ended
 conversation_follow_up_ms = 6000  # how long conversation mode keeps listening after a response
                                    # before requiring the wake word again
+input_device = ""            # sounddevice input device index or name; blank = system default.
+                              # Machine-specific - set via CLIO_AUDIO_INPUT_DEVICE in .env, not here.
 
 [wake_word]
 # "Daddy is home Clio" was dropped - it failed training twice at the identical score,

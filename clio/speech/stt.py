@@ -11,40 +11,16 @@ useful if the GPU is busy or the model isn't warm yet.
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 import numpy as np
 
+from clio.core.cuda import ensure_cuda_dlls_on_path
 from clio.core.logging import get_logger
 from clio.speech.audio_input import SAMPLE_RATE
 
 log = get_logger("clio.speech.stt")
-
-_cuda_dlls_registered = False
-
-
-def _ensure_cuda_dlls_on_path() -> None:
-    """faster-whisper's backend (CTranslate2) needs CUDA 12.x's cublas/cudnn DLLs.
-    The pip packages that bundle them (nvidia-cublas-cu12, nvidia-cudnn-cu12) don't
-    put those DLLs on the search path automatically, and CTranslate2's own lazy CUDA
-    init doesn't respect os.add_dll_directory - only a plain PATH prepend works.
-    No-op outside Windows or if the packages aren't installed (e.g. CPU-only setups).
-    """
-    global _cuda_dlls_registered
-    if _cuda_dlls_registered or sys.platform != "win32":
-        return
-
-    site_packages = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
-    dll_dirs = [site_packages / "cublas" / "bin", site_packages / "cudnn" / "bin"]
-    existing = [str(d) for d in dll_dirs if d.is_dir()]
-    if existing:
-        os.environ["PATH"] = os.pathsep.join(existing) + os.pathsep + os.environ.get("PATH", "")
-    _cuda_dlls_registered = True
-
 
 class STTEngine(ABC):
     @abstractmethod
@@ -90,7 +66,7 @@ class FasterWhisperEngine(STTEngine):
     def _ensure_loaded(self):
         if self._model is None:
             if self._device == "cuda":
-                _ensure_cuda_dlls_on_path()
+                ensure_cuda_dlls_on_path()
             from faster_whisper import WhisperModel
 
             log.info(
