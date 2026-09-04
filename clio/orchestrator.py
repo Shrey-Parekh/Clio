@@ -29,10 +29,15 @@ from clio.speech.wake_word import CHUNK_SAMPLES, WakeWordDetector
 log = get_logger("clio.orchestrator")
 
 
-async def wait_for_wake_word(detector: WakeWordDetector, frames: AsyncIterator[np.ndarray]) -> str:
+async def wait_for_wake_word(
+    detector: WakeWordDetector,
+    frames: AsyncIterator[np.ndarray],
+    interrupt: asyncio.Event | None = None,
+) -> str | None:
     """Consumes VAD-shaped frames (512 float32 samples each) from the live mic
     stream, re-buffered into the larger int16 chunks WakeWordDetector needs,
-    until a configured phrase triggers. Returns the triggered phrase.
+    until a configured phrase triggers. Returns the triggered phrase, or None
+    if `interrupt` was set (something else - a fired timer - needs the stream).
 
     Exits by returning, not by cancelling a task - cancelling a task mid-
     `async for` on a shared generator closes it (the bug found while building
@@ -42,9 +47,14 @@ async def wait_for_wake_word(detector: WakeWordDetector, frames: AsyncIterator[n
     """
     buffer = np.zeros(0, dtype=np.float32)
     async for frame in frames:
+        if interrupt is not None and interrupt.is_set():
+            return None
+
         buffer = np.concatenate([buffer, frame])
         while buffer.size >= CHUNK_SAMPLES:
-            chunk = (buffer[:CHUNK_SAMPLES] * 32767.0).astype(np.int16)
+            # Clip before scaling: a mic hotter than full scale would otherwise
+            # wrap around in the int16 cast and turn loud speech into noise.
+            chunk = (np.clip(buffer[:CHUNK_SAMPLES], -1.0, 1.0) * 32767.0).astype(np.int16)
             buffer = buffer[CHUNK_SAMPLES:]
             phrase = detector.process(chunk)
             if phrase is not None:
@@ -74,14 +84,22 @@ class Orchestrator:
         self._follow_up_window_s = follow_up_window_s
         self._bus = bus
         self._memory_max_tokens = memory_max_tokens
-        self._speak_lock = asyncio.Lock()
+        self._announcements: asyncio.Queue[str] = asyncio.Queue()
+        self._announcement_ready = asyncio.Event()
         self._timers = TimerCapability(announce=self._announce)
         self._frames: AsyncIterator[np.ndarray] | None = None
 
     async def run(self, capture: AudioCapture) -> None:
         self._frames = capture.frames()
         while True:
-            phrase = await wait_for_wake_word(self._wake_detector, self._frames)
+            await self._speak_pending_announcements()
+
+            phrase = await wait_for_wake_word(
+                self._wake_detector, self._frames, interrupt=self._announcement_ready
+            )
+            if phrase is None:
+                continue
+
             log.info("Wake word triggered", extra={"extra_fields": {"phrase": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
@@ -94,6 +112,7 @@ class Orchestrator:
             system_prompt=self._persona_system_prompt,
             bus=self._bus,
         )
+        await self._speak_pending_announcements()
         turn_audio = await self._turn_detector.listen_for_turn(self._frames)
 
         while turn_audio.size > 0:
@@ -104,9 +123,8 @@ class Orchestrator:
             log.info("User turn", extra={"extra_fields": {"text": text}})
             reply_text = await self._handle_utterance(text, memory)
 
-            async with self._speak_lock:
-                session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
-                next_turn = await session.respond(reply_text, self._frames)
+            session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
+            next_turn = await session.respond(reply_text, self._frames)
 
             if next_turn is None:
                 return
@@ -124,7 +142,13 @@ class Orchestrator:
         duration_s = parse_timer_command(text)
         if duration_s is not None:
             log.info("Deterministic timer match, no API call", extra={"extra_fields": {"duration_s": duration_s}})
-            return self._timers.start(duration_s)
+            confirmation = self._timers.start(duration_s)
+            # Recorded so a follow-up ("how long is left on that?") has context.
+            # Deliberately no trim_if_needed() here: trimming summarizes via the
+            # LLM, which would let a timer cost an API call after all.
+            memory.add_user(text)
+            memory.add_assistant(confirmation)
+            return confirmation
 
         memory.add_user(text)
         try:
@@ -138,16 +162,32 @@ class Orchestrator:
         return reply
 
     async def _announce(self, text: str) -> None:
-        """Speaks an unprompted announcement (a fired timer). Serialized
-        through the same lock as conversational replies so two speak() calls
-        never run concurrently on the same shared frames stream - a barge-in
-        during an announcement stops it, but doesn't itself start a new
-        conversation turn (the user would say the wake word again for that).
+        """Queues an unprompted announcement (a fired timer) for the main loop
+        to speak. Deliberately does not speak here: this runs on the timer's
+        own background task, and speaking would start a second consumer of the
+        shared frame stream while the main loop is already reading it, which
+        an async generator refuses outright ("anext(): asynchronous generator
+        is already running"). The main loop is the sole reader; it drains this
+        queue at points where it is not mid-read.
         """
-        if self._frames is None:
-            return
-        async with self._speak_lock:
-            await self._speaker.speak(text, self._frames, listen_after_s=0.0)
+        await self._announcements.put(text)
+        self._announcement_ready.set()
+
+    async def _speak_pending_announcements(self) -> None:
+        """Speaks whatever is queued. Only ever called from the main loop, so
+        the frame stream still has exactly one reader. An announcement raised
+        while a conversation is in progress waits until that conversation's
+        current turn is done rather than cutting into it.
+        """
+        while not self._announcements.empty():
+            text = await self._announcements.get()
+            try:
+                await self._speaker.speak(text, self._frames, listen_after_s=0.0)
+            except Exception as exc:
+                await report_error(
+                    self._bus, exc, context="timer announcement", source="clio.orchestrator"
+                )
+        self._announcement_ready.clear()
 
 
 def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestrator:

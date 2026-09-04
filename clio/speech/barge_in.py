@@ -37,16 +37,23 @@ class BargeInSpeaker:
         Returns the captured turn if the user spoke - whether mid-response or
         within the extra window - or None if nothing was said.
         """
+        stop_listening = asyncio.Event()
         speak_task = asyncio.ensure_future(self._engine.speak(text))
-        onset_task = asyncio.ensure_future(self._turn_detector.wait_for_onset(frames))
+        onset_task = asyncio.ensure_future(self._turn_detector.wait_for_onset(frames, stop=stop_listening))
 
         done, _pending = await asyncio.wait({speak_task, onset_task}, return_when=asyncio.FIRST_COMPLETED)
 
         if onset_task not in done:
+            # Speech finished with nothing said yet - wait listen_after_s more, then
+            # stop by signal and await the task normally. Never cancel it: cancelling
+            # mid-`async for` closes `frames` for every later reader (the next wake
+            # word wait, most importantly), which is a far worse failure than a
+            # slightly late give-up. shield() keeps wait_for's timeout from cancelling.
             try:
-                onset_frames = await asyncio.wait_for(onset_task, timeout=listen_after_s)
+                onset_frames = await asyncio.wait_for(asyncio.shield(onset_task), timeout=listen_after_s)
             except asyncio.TimeoutError:
-                return None
+                stop_listening.set()
+                onset_frames = await onset_task
         else:
             onset_frames = onset_task.result()
 
