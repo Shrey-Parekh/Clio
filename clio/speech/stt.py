@@ -62,10 +62,17 @@ class STTEngine(ABC):
 class FasterWhisperEngine(STTEngine):
     """Local STT via faster-whisper. Lazy-loads and warm-keeps the model."""
 
-    def __init__(self, model_size: str, device: str = "cuda", compute_type: str | None = None):
+    def __init__(
+        self,
+        model_size: str,
+        device: str = "cuda",
+        compute_type: str | None = None,
+        initial_prompt: str | None = None,
+    ):
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type or ("int8_float16" if device == "cuda" else "int8")
+        self._initial_prompt = initial_prompt
         self._model = None
 
     def _ensure_loaded(self):
@@ -100,7 +107,21 @@ class FasterWhisperEngine(STTEngine):
 
     def _transcribe_sync(self, audio: np.ndarray) -> str:
         model = self._ensure_loaded()
-        segments, _info = model.transcribe(audio, language="en")
+        segments, _info = model.transcribe(
+            audio,
+            language="en",
+            # Biases the decoder's vocabulary. Without it, "Clio" came back as
+            # "Cleo" every single time in live use - 5 out of 5 - which then got
+            # written into long-term memory as the wrong name. Measured on
+            # synthesized probes: 3/6 correct without, 6/6 with, and slightly
+            # faster with, since the decoder stops hunting for alternatives.
+            initial_prompt=self._initial_prompt,
+            # Guards Whisper's known repetition-loop failure mode on longer
+            # audio. Made no measurable difference on the short probes here;
+            # included because the downside is nil and the failure it prevents
+            # is ugly.
+            condition_on_previous_text=False,
+        )
         return " ".join(segment.text.strip() for segment in segments).strip()
 
 

@@ -445,10 +445,30 @@ def _build_memory_store(config: Config) -> MemoryStore | None:
         return None
 
 
+def _stt_initial_prompt(config: Config) -> str:
+    """Vocabulary hint for the transcriber, built from config rather than
+    hardcoded so renaming her or adding a wake phrase keeps it correct.
+    Her own name is the single most important word in the system and was the
+    one it reliably got wrong.
+    """
+    name = config.persona.name
+    phrases = ", ".join(config.wake_word.phrases)
+    return (
+        f"This is a conversation with {name}, a voice assistant. "
+        f"{name} is spelled {'-'.join(name.upper())}. "
+        f"She is addressed as: {phrases}. "
+        "Topics include timers, reminders, files, code, and general questions."
+    )
+
+
 def _build_stt(config: Config) -> STTEngine:
     if config.speech.stt_provider == "groq":
         return GroqWhisperEngine(model=config.speech.stt_groq_model)
-    return FasterWhisperEngine(config.speech.stt_model, device=config.speech.stt_device)
+    return FasterWhisperEngine(
+        config.speech.stt_model,
+        device=config.speech.stt_device,
+        initial_prompt=_stt_initial_prompt(config),
+    )
 
 
 def _build_tts(config: Config, bus: EventBus | None) -> SpeechEngine:
