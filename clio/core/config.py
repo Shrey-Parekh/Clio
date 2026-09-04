@@ -56,6 +56,7 @@ class LLMConfig:
 class SpeechConfig:
     tts_engine: str
     tts_voice: str
+    tts_speed: float
     stt_provider: str
     stt_model: str
     stt_device: str
@@ -91,6 +92,7 @@ class WakeWordConfig:
 @dataclass(frozen=True)
 class PersonaConfig:
     name: str
+    system_prompt: str
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,7 @@ def load_config(root: Path | None = None) -> Config:
         speech = SpeechConfig(
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),
             tts_voice=_env_override("CLIO_TTS_VOICE", raw["speech"]["tts_voice"]),
+            tts_speed=float(_env_override("CLIO_TTS_SPEED", str(raw["speech"]["tts_speed"]))),
             stt_provider=_env_override("CLIO_STT_PROVIDER", raw["speech"]["stt_provider"]).lower(),
             stt_model=_env_override("CLIO_STT_MODEL", raw["speech"]["stt_model"]),
             stt_device=_env_override("CLIO_STT_DEVICE", raw["speech"]["stt_device"]),
@@ -211,6 +214,7 @@ def load_config(root: Path | None = None) -> Config:
         )
         persona = PersonaConfig(
             name=_env_override("CLIO_PERSONA", raw["persona"]["name"]),
+            system_prompt=_env_override("CLIO_PERSONA_SYSTEM_PROMPT", raw["persona"]["system_prompt"]).strip(),
         )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
@@ -246,6 +250,8 @@ def _validate(config: Config) -> None:
         ):
             if not Path(path).is_file():
                 errors.append(f"speech.{label} '{path}' does not exist - see .env.example for how to download it")
+    if config.speech.tts_speed <= 0:
+        errors.append(f"speech.tts_speed {config.speech.tts_speed} must be positive")
     if not Path(config.audio.vad_model_path).is_file():
         errors.append(
             f"audio.vad_model_path '{config.audio.vad_model_path}' does not exist - "
@@ -282,6 +288,10 @@ def _validate(config: Config) -> None:
                     f"wake_word phrase '{phrase}' has no trained model at '{model_path}' - "
                     "train it (see docs/wake_word_training.md) or remove it from wake_word.phrases"
                 )
+    if not config.persona.name.strip():
+        errors.append("persona.name must not be blank")
+    if not config.persona.system_prompt:
+        errors.append("persona.system_prompt must not be blank")
     if config.llm.provider not in _VALID_LLM_PROVIDERS:
         errors.append(f"llm.provider '{config.llm.provider}' must be one of {sorted(_VALID_LLM_PROVIDERS)}")
     for tier in ("fast", "default", "reasoning"):

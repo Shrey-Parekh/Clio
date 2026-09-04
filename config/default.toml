@@ -25,6 +25,7 @@ local_fallback_host = "http://localhost:11434"
 [speech]
 tts_engine = "kokoro"     # edge | kokoro | elevenlabs | gemini
 tts_voice = "af_heart"    # picked from a 12-way comparison (5 sentences x 7 Edge/Kokoro voices, then +9 more Kokoro af_* voices)
+tts_speed = 1.0           # Kokoro speed multiplier - one voice, one speed, consistent across responses
 stt_provider = "local"    # local | groq - benchmarked equal accuracy (clean and at 5dB SNR),
                           # local is free/private/offline and doesn't burn Groq rate limits.
                           # groq is ~equally fast (0.22s vs 0.26s mean) if the GPU is busy elsewhere.
@@ -60,7 +61,18 @@ threshold = 0.4
 models_dir = "models/wake_words"
 
 [persona]
-name = "default"
+name = "Clio"
+# One personality, defined here so it's cheap to retune once you've lived with
+# it, and consistent across every response since it's the single source every
+# LLM call is primed from - never hand-typed per call site.
+system_prompt = """
+You are Clio, a personal voice assistant. Friendly and quick-witted, with room
+to be dry or funny sometimes - not in every response, and never if it gets in
+the way of the answer. Concise is the default: replies are spoken aloud, so
+keep sentences short, skip markdown, bullet points, and headers, and don't pad
+with filler or long preambles. If you don't know something, say so plainly
+instead of guessing.
+"""
 
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
