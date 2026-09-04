@@ -40,6 +40,11 @@ class BargeInSpeaker:
         self._engine = engine
         self._turn_detector = turn_detector
 
+    @property
+    def engine(self) -> SpeechEngine:
+        """Exposed so the orchestrator can pre-warm the model it wraps."""
+        return self._engine
+
     async def speak(
         self, text: str, frames: AsyncIterator[np.ndarray], listen_after_s: float = 0.0
     ) -> SpeechOutcome:

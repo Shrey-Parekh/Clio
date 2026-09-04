@@ -108,6 +108,7 @@ class MemoryConfig:
     recent_turns_on_start: int
     recall_hits: int
     consolidate: bool
+    prewarm: bool
 
 
 @dataclass(frozen=True)
@@ -249,6 +250,10 @@ def load_config(root: Path | None = None) -> Config:
             consolidate=_env_override(
                 "CLIO_MEMORY_CONSOLIDATE", str(raw["memory"]["consolidate"])
             ).strip().lower()
+            in {"1", "true", "yes", "on"},
+            prewarm=_env_override("CLIO_PREWARM", str(raw["memory"].get("prewarm", True)))
+            .strip()
+            .lower()
             in {"1", "true", "yes", "on"},
         )
         runtime = RuntimeConfig(

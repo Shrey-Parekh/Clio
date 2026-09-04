@@ -23,6 +23,7 @@ from clio.memory.store import MemoryStore
 from clio.speech.audio_input import AudioCapture, TurnDetector, VoiceActivityDetector
 from clio.speech.barge_in import BargeInSpeaker
 from clio.speech.conversation import ConversationSession
+from clio.speech.cues import play_wake_cue
 from clio.speech.stt import FasterWhisperEngine, GroqWhisperEngine, STTEngine
 from clio.speech.tts import KokoroSpeechEngine, SpeechEngine
 from clio.speech.wake_word import CHUNK_SAMPLES, WakeWordDetector
@@ -79,6 +80,7 @@ class Orchestrator:
         recent_turns_on_start: int = 8,
         recall_hits: int = 4,
         consolidate: bool = True,
+        prewarm: bool = True,
     ):
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
@@ -97,6 +99,7 @@ class Orchestrator:
         self._store = store
         self._recall_hits = recall_hits
         self._consolidate = consolidate
+        self._prewarm = prewarm
 
         # One memory for the whole run, not one per wake: re-waking continues
         # the conversation rather than starting from nothing, which is what
@@ -129,6 +132,8 @@ class Orchestrator:
 
     async def run(self, capture: AudioCapture) -> None:
         self._frames = capture.frames()
+        if self._prewarm:
+            asyncio.ensure_future(self._warm_up_models())
         while True:
             await self._speak_pending_announcements()
 
@@ -138,10 +143,30 @@ class Orchestrator:
             if phrase is None:
                 continue
 
+            # Immediately, before STT or the model does anything: without this the
+            # user gets silence and assumes it didn't hear them (12 of the 20
+            # seconds in the first live test were exactly that).
+            play_wake_cue()
             log.info("Wake word triggered", extra={"extra_fields": {"phrase": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
             await self._conversation_loop()
+
+    async def _warm_up_models(self) -> None:
+        """Load STT and TTS in the background at startup. They are lazy-loaded by
+        design (idle footprint), but paying for both on the first request cost
+        ~7s of the first live test. Doing it here keeps boot itself fast while
+        making the first real request fast too; set memory.prewarm = false to
+        trade responsiveness back for a lighter idle GPU.
+        """
+        for label, engine in (("stt", self._stt), ("tts", self._speaker.engine)):
+            try:
+                await engine.warm_up()
+                log.info("Pre-warmed model", extra={"extra_fields": {"engine": label}})
+            except Exception as exc:
+                await report_error(
+                    self._bus, exc, context=f"pre-warming {label}", source="clio.orchestrator"
+                )
 
     async def _conversation_loop(self) -> None:
         await self._speak_pending_announcements()
@@ -335,6 +360,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         recent_turns_on_start=config.memory.recent_turns_on_start,
         recall_hits=config.memory.recall_hits,
         consolidate=config.memory.consolidate,
+        prewarm=config.memory.prewarm,
     )
 
 

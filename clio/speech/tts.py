@@ -71,6 +71,11 @@ class SpeechEngine(ABC):
     def cancel(self) -> None:
         """Stop speaking immediately. Safe to call at any time, including when idle."""
 
+    async def warm_up(self) -> None:
+        """Load whatever is loaded lazily, ahead of the first real request.
+        Default is a no-op for engines with nothing to load."""
+        return None
+
 
 class KokoroSpeechEngine(SpeechEngine):
     """Local, offline TTS via Kokoro ONNX. Lazy-loads the model on first use."""
@@ -118,6 +123,13 @@ class KokoroSpeechEngine(SpeechEngine):
             )
             self._kokoro = Kokoro(self._model_path, self._voices_path)
         return self._kokoro
+
+    async def warm_up(self) -> None:
+        # Loading the model isn't enough: the first inference still pays CUDA
+        # kernel compilation (~2s). A throwaway synthesis moves that cost here,
+        # off the first thing the user actually asks for.
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._synthesize, "Ready.")
 
     def _synthesize(self, sentence: str):
         kokoro = self._ensure_loaded()

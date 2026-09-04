@@ -27,6 +27,11 @@ class STTEngine(ABC):
     async def transcribe(self, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> str:
         """Transcribe a complete audio segment (e.g. one full user turn) to text."""
 
+    async def warm_up(self) -> None:
+        """Load whatever is loaded lazily, ahead of the first real request.
+        Default is a no-op - the hosted engine has nothing local to load."""
+        return None
+
     async def transcribe_stream(
         self, audio_chunks: AsyncIterator[np.ndarray], interval_s: float = 1.5
     ) -> AsyncIterator[str]:
@@ -81,6 +86,13 @@ class FasterWhisperEngine(STTEngine):
             )
             self._model = WhisperModel(self._model_size, device=self._device, compute_type=self._compute_type)
         return self._model
+
+    async def warm_up(self) -> None:
+        # Same reasoning as the TTS side: run one throwaway transcription so the
+        # first real utterance doesn't pay model load *and* kernel warm-up.
+        loop = asyncio.get_running_loop()
+        silence = np.zeros(SAMPLE_RATE // 2, dtype=np.float32)
+        await loop.run_in_executor(None, self._transcribe_sync, silence)
 
     async def transcribe(self, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> str:
         loop = asyncio.get_running_loop()
