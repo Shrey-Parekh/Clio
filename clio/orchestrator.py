@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.stop import is_stop_command
 from clio.capabilities.timer import TimerCapability, parse_timer_command
 from clio.core.config import Config, ConfigError
 from clio.core.errors import report_error
@@ -204,37 +205,62 @@ class Orchestrator:
                 extra={
                     "extra_fields": {
                         "think_s": round(time.monotonic() - heard_at, 2),
-                        "chars": len(reply_text),
+                        "chars": len(reply_text) if reply_text else 0,
                         "used_llm": turn_used_llm,
                     }
                 },
             )
-            session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
-            outcome = await session.respond(reply_text, self._frames)
 
-            # What she actually said, not what was generated: barge-in means
-            # those differ, and recording the generated text would leave her
-            # believing she said things the user never heard.
-            heard = (outcome.spoken_text or "").strip()
-            if outcome.interrupted:
-                heard = (
-                    f"{heard} [cut off here - the user interrupted]"
-                    if heard
-                    else "[started replying but the user interrupted before anything was said]"
-                )
-            if heard:
-                self._memory.add_assistant(heard)
-                self._record(role="assistant", content=heard)
+            if reply_text is None:
+                # A stop command: say nothing, don't restart the follow-up-window
+                # clock through speech that doesn't happen - just keep listening.
+                next_turn = await self._listen_silently()
+            else:
+                session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
+                outcome = await session.respond(reply_text, self._frames)
+
+                # What she actually said, not what was generated: barge-in means
+                # those differ, and recording the generated text would leave her
+                # believing she said things the user never heard.
+                heard = (outcome.spoken_text or "").strip()
+                if outcome.interrupted:
+                    heard = (
+                        f"{heard} [cut off here - the user interrupted]"
+                        if heard
+                        else "[started replying but the user interrupted before anything was said]"
+                    )
+                if heard:
+                    self._memory.add_assistant(heard)
+                    self._record(role="assistant", content=heard)
+                next_turn = outcome.next_turn
 
             if turn_used_llm:
                 await self._memory.trim_if_needed()
 
-            if outcome.next_turn is None:
+            if next_turn is None:
                 break
-            turn_audio = outcome.next_turn
+            turn_audio = next_turn
 
         if used_llm:
             await self._consolidate_memory()
+
+    async def _listen_silently(self) -> np.ndarray | None:
+        """The stop-command counterpart to ConversationSession's follow-up
+        window: listens for up to follow_up_window_s more without speaking
+        anything first. Uses TurnDetector directly rather than BargeInSpeaker,
+        since there is no speech in flight to race against or cancel.
+        """
+        stop = asyncio.Event()
+        onset_task = asyncio.ensure_future(self._turn_detector.wait_for_onset(self._frames, stop=stop))
+        try:
+            onset_frames = await asyncio.wait_for(asyncio.shield(onset_task), timeout=self._follow_up_window_s)
+        except asyncio.TimeoutError:
+            stop.set()
+            onset_frames = await onset_task
+
+        if onset_frames is None:
+            return None
+        return await self._turn_detector.capture_until_silence(self._frames, onset_frames)
 
     async def _transcribe(self, audio: np.ndarray) -> str:
         try:
@@ -244,10 +270,18 @@ class Orchestrator:
             return ""
         return text.strip()
 
-    async def _handle_utterance(self, text: str) -> tuple[str, bool]:
-        """Returns the reply to speak and whether the LLM was used. The caller
-        records the assistant turn afterwards, using what was actually spoken.
+    async def _handle_utterance(self, text: str) -> tuple[str | None, bool]:
+        """Returns the reply to speak (None means say nothing at all) and
+        whether the LLM was used. The caller records the assistant turn
+        afterwards, using what was actually spoken.
         """
+        if is_stop_command(text):
+            # The words used to interrupt her must not themselves become a new
+            # question - "Shut up." going to the LLM is exactly the bug this
+            # exists to prevent. Deterministic, no API call, same as timers.
+            log.info("Deterministic stop command, no API call, no reply")
+            return None, False
+
         duration_s = parse_timer_command(text)
         if duration_s is not None:
             log.info("Deterministic timer match, no API call", extra={"extra_fields": {"duration_s": duration_s}})
