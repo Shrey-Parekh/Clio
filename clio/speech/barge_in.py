@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -20,6 +21,20 @@ from clio.speech.tts import SpeechEngine
 log = get_logger("clio.speech.barge_in")
 
 
+@dataclass(frozen=True)
+class SpeechOutcome:
+    """What actually happened when Clio spoke.
+
+    `spoken_text` is what the user really heard, which is not the same as what
+    was handed to speak() once barge-in exists - that difference is the whole
+    point of returning it, so memory records the heard version.
+    """
+
+    spoken_text: str
+    interrupted: bool
+    next_turn: np.ndarray | None
+
+
 class BargeInSpeaker:
     def __init__(self, engine: SpeechEngine, turn_detector: TurnDetector):
         self._engine = engine
@@ -27,15 +42,17 @@ class BargeInSpeaker:
 
     async def speak(
         self, text: str, frames: AsyncIterator[np.ndarray], listen_after_s: float = 0.0
-    ) -> np.ndarray | None:
+    ) -> SpeechOutcome:
         """Speak `text` while listening on `frames` for the user to start
         talking over it. If speech finishes before any onset arrives, keeps
         listening on the same stream for up to `listen_after_s` more before
         giving up - a single onset watch spans both phases so a "no
         interruption yet" outcome never closes `frames` out from under a
         caller that wants to keep listening (conversation mode's case).
-        Returns the captured turn if the user spoke - whether mid-response or
-        within the extra window - or None if nothing was said.
+
+        Returns a SpeechOutcome carrying what was actually spoken, whether it
+        was cut off, and the captured turn if the user spoke - either mid
+        response or within the extra window.
         """
         stop_listening = asyncio.Event()
         speak_task = asyncio.ensure_future(self._engine.speak(text))
@@ -57,12 +74,15 @@ class BargeInSpeaker:
         else:
             onset_frames = onset_task.result()
 
-        if not speak_task.done():
+        interrupted = not speak_task.done()
+        if interrupted:
             log.info("Barge-in: speech interrupted")
             self._engine.cancel()
-            await speak_task
+
+        spoken_text = await speak_task
 
         if onset_frames is None:
-            return None
+            return SpeechOutcome(spoken_text=spoken_text, interrupted=interrupted, next_turn=None)
 
-        return await self._turn_detector.capture_until_silence(frames, onset_frames)
+        next_turn = await self._turn_detector.capture_until_silence(frames, onset_frames)
+        return SpeechOutcome(spoken_text=spoken_text, interrupted=interrupted, next_turn=next_turn)

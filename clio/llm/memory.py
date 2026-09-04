@@ -42,6 +42,19 @@ class ConversationMemory:
         self._summary: str | None = None
         self._messages: list[Message] = []
         self._bus = bus
+        self._recalled: str | None = None
+
+    def seed(self, messages: list[Message]) -> None:
+        """Prime the window with turns from earlier sessions, so a restart
+        doesn't start from amnesia. These are already in the long-term store;
+        seeding only puts them back in front of the model."""
+        self._messages = list(messages) + self._messages
+
+    def set_recalled(self, text: str | None) -> None:
+        """Context pulled out of long-term memory for the current question.
+        Replaced each turn rather than accumulated - it's retrieval output,
+        not conversation history."""
+        self._recalled = text.strip() if text else None
 
     def add_user(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
@@ -55,6 +68,8 @@ class ConversationMemory:
         msgs: list[Message] = []
         if self._system_prompt:
             msgs.append({"role": "system", "content": self._system_prompt})
+        if self._recalled:
+            msgs.append({"role": "system", "content": f"From your long-term memory:\n{self._recalled}"})
         if self._summary:
             msgs.append({"role": "system", "content": f"Summary of earlier conversation: {self._summary}"})
         msgs.extend(self._messages)

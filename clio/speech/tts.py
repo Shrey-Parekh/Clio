@@ -55,9 +55,14 @@ def split_sentences(text: str) -> list[str]:
 
 class SpeechEngine(ABC):
     @abstractmethod
-    async def speak(self, text: str) -> None:
+    async def speak(self, text: str) -> str:
         """Speak text sentence by sentence, streaming as each renders.
         Returns when finished, or as soon as possible after cancel() is called.
+
+        Returns the text actually spoken aloud - the whole thing normally, or
+        just the sentences that finished playing if cancel() cut it short.
+        Callers record that rather than the full text, so Clio never believes
+        she said more than the user heard.
         """
 
     @abstractmethod
@@ -124,16 +129,17 @@ class KokoroSpeechEngine(SpeechEngine):
             await report_error(self._bus, exc, context=f"TTS synthesis for {sentence!r}", source="clio.speech.tts")
             return None
 
-    async def speak(self, text: str) -> None:
+    async def speak(self, text: str) -> str:
         sentences = split_sentences(text)
         if not sentences:
-            return
+            return ""
 
         self._cancelled.clear()
+        spoken: list[str] = []
 
         next_audio = await self._render_racing_cancel(sentences[0])
         if next_audio is None:
-            return
+            return ""
 
         for i in range(len(sentences)):
             if self._cancelled.is_set():
@@ -145,7 +151,11 @@ class KokoroSpeechEngine(SpeechEngine):
             if i + 1 < len(sentences):
                 render_coro = asyncio.ensure_future(self._render_racing_cancel(sentences[i + 1]))
 
-            await self._play(samples, sample_rate)
+            # Only counted as spoken once it has played all the way through. A
+            # sentence cut off partway is left out: under-reporting by at most
+            # one sentence beats claiming whole sentences the user never heard.
+            if await self._play(samples, sample_rate):
+                spoken.append(sentences[i])
 
             if render_coro is not None:
                 if self._cancelled.is_set():
@@ -155,21 +165,25 @@ class KokoroSpeechEngine(SpeechEngine):
                 if next_audio is None:
                     break
 
-    async def _play(self, samples, sample_rate: int) -> None:
+        return " ".join(spoken)
+
+    async def _play(self, samples, sample_rate: int) -> bool:
+        """Returns True if playback ran to completion, False if it was cancelled
+        before starting or partway through."""
         import sounddevice as sd
 
         if self._cancelled.is_set():
-            return
+            return False
 
         sd.play(samples, sample_rate)
         try:
             while True:
                 stream = sd.get_stream()
                 if stream is None or not stream.active:
-                    break
+                    return True
                 if self._cancelled.is_set():
                     sd.stop()
-                    break
+                    return False
                 await asyncio.sleep(0.02)
         except asyncio.CancelledError:
             sd.stop()

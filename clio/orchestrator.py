@@ -19,6 +19,7 @@ from clio.core.events import EventBus
 from clio.core.logging import get_logger
 from clio.llm.memory import ConversationMemory
 from clio.llm.provider import LLMProvider, build_default_provider
+from clio.memory.store import MemoryStore
 from clio.speech.audio_input import AudioCapture, TurnDetector, VoiceActivityDetector
 from clio.speech.barge_in import BargeInSpeaker
 from clio.speech.conversation import ConversationSession
@@ -74,6 +75,10 @@ class Orchestrator:
         follow_up_window_s: float,
         bus: EventBus | None = None,
         memory_max_tokens: int = 6000,
+        store: MemoryStore | None = None,
+        recent_turns_on_start: int = 8,
+        recall_hits: int = 4,
+        consolidate: bool = True,
     ):
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
@@ -88,6 +93,32 @@ class Orchestrator:
         self._announcement_ready = asyncio.Event()
         self._timers = TimerCapability(announce=self._announce)
         self._frames: AsyncIterator[np.ndarray] | None = None
+
+        self._store = store
+        self._recall_hits = recall_hits
+        self._consolidate = consolidate
+
+        # One memory for the whole run, not one per wake: re-waking continues
+        # the conversation rather than starting from nothing, which is what
+        # "conversation memory within a session" has to mean once the wake word
+        # is how every exchange begins.
+        self._memory = ConversationMemory(
+            provider=self._llm,
+            max_tokens=memory_max_tokens,
+            system_prompt=persona_system_prompt,
+            bus=bus,
+        )
+        if self._store is not None and recent_turns_on_start > 0:
+            self._store.start_session()
+            prior = self._store.recent_turns(
+                limit=recent_turns_on_start, exclude_session=self._store.session_id
+            )
+            if prior:
+                self._memory.seed([{"role": t.role, "content": t.content} for t in prior])
+                log.info(
+                    "Seeded working memory from long-term store",
+                    extra={"extra_fields": {"turns": len(prior)}},
+                )
 
     async def run(self, capture: AudioCapture) -> None:
         self._frames = capture.frames()
@@ -106,14 +137,9 @@ class Orchestrator:
             await self._conversation_loop()
 
     async def _conversation_loop(self) -> None:
-        memory = ConversationMemory(
-            provider=self._llm,
-            max_tokens=self._memory_max_tokens,
-            system_prompt=self._persona_system_prompt,
-            bus=self._bus,
-        )
         await self._speak_pending_announcements()
         turn_audio = await self._turn_detector.listen_for_turn(self._frames)
+        used_llm = False
 
         while turn_audio.size > 0:
             text = await self._transcribe(turn_audio)
@@ -121,14 +147,38 @@ class Orchestrator:
                 break
 
             log.info("User turn", extra={"extra_fields": {"text": text}})
-            reply_text = await self._handle_utterance(text, memory)
+            self._memory.add_user(text)
+            self._record(role="user", content=text)
+
+            reply_text, turn_used_llm = await self._handle_utterance(text)
+            used_llm = used_llm or turn_used_llm
 
             session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
-            next_turn = await session.respond(reply_text, self._frames)
+            outcome = await session.respond(reply_text, self._frames)
 
-            if next_turn is None:
-                return
-            turn_audio = next_turn
+            # What she actually said, not what was generated: barge-in means
+            # those differ, and recording the generated text would leave her
+            # believing she said things the user never heard.
+            heard = (outcome.spoken_text or "").strip()
+            if outcome.interrupted:
+                heard = (
+                    f"{heard} [cut off here - the user interrupted]"
+                    if heard
+                    else "[started replying but the user interrupted before anything was said]"
+                )
+            if heard:
+                self._memory.add_assistant(heard)
+                self._record(role="assistant", content=heard)
+
+            if turn_used_llm:
+                await self._memory.trim_if_needed()
+
+            if outcome.next_turn is None:
+                break
+            turn_audio = outcome.next_turn
+
+        if used_llm:
+            await self._consolidate_memory()
 
     async def _transcribe(self, audio: np.ndarray) -> str:
         try:
@@ -138,28 +188,76 @@ class Orchestrator:
             return ""
         return text.strip()
 
-    async def _handle_utterance(self, text: str, memory: ConversationMemory) -> str:
+    async def _handle_utterance(self, text: str) -> tuple[str, bool]:
+        """Returns the reply to speak and whether the LLM was used. The caller
+        records the assistant turn afterwards, using what was actually spoken.
+        """
         duration_s = parse_timer_command(text)
         if duration_s is not None:
             log.info("Deterministic timer match, no API call", extra={"extra_fields": {"duration_s": duration_s}})
-            confirmation = self._timers.start(duration_s)
-            # Recorded so a follow-up ("how long is left on that?") has context.
-            # Deliberately no trim_if_needed() here: trimming summarizes via the
-            # LLM, which would let a timer cost an API call after all.
-            memory.add_user(text)
-            memory.add_assistant(confirmation)
-            return confirmation
+            return self._timers.start(duration_s), False
 
-        memory.add_user(text)
+        # Retrieval happens only on the LLM path - a deterministic command must
+        # not touch the store's search or anything else that could cost time.
+        if self._store is not None and self._recall_hits > 0:
+            recalled = self._store.recall(
+                text, limit=self._recall_hits, exclude_session=self._store.session_id
+            )
+            self._memory.set_recalled(recalled or None)
+
         try:
-            reply = await self._llm.complete(memory.get_messages())
+            reply = await self._llm.complete(self._memory.get_messages())
         except Exception as exc:
             described = await report_error(self._bus, exc, context="LLM response", source="clio.orchestrator")
-            return described.spoken
+            return described.spoken, False
 
-        memory.add_assistant(reply)
-        await memory.trim_if_needed()
-        return reply
+        return reply, True
+
+    def _record(self, role: str, content: str) -> None:
+        if self._store is None:
+            return
+        try:
+            self._store.append_turn(role, content)
+        except Exception:
+            log.exception("Failed to persist turn to long-term memory")
+
+    async def _consolidate_memory(self) -> None:
+        """One fast-tier call at the end of a conversation to distil anything
+        worth keeping into facts.md. Skipped entirely when the conversation
+        never used the LLM, so a timer-only exchange still costs nothing.
+        """
+        if not self._consolidate or self._store is None:
+            return
+
+        transcript = "\n".join(
+            f"{m['role']}: {m['content']}" for m in self._memory.get_messages() if m["role"] != "system"
+        )
+        if not transcript.strip():
+            return
+
+        prompt = (
+            "From this conversation, list any durable facts about the user worth "
+            "remembering in future sessions - preferences, ongoing projects, names, "
+            "recurring context. One per line, no bullets, no preamble. Skip anything "
+            "transient (timers, one-off questions). Reply with nothing at all if there "
+            "is nothing worth keeping.\n\n" + transcript
+        )
+
+        try:
+            raw = await self._llm.complete([{"role": "user", "content": prompt}], tier="fast")
+        except Exception as exc:
+            await report_error(
+                self._bus, exc, context="memory consolidation", source="clio.orchestrator"
+            )
+            return
+
+        added = 0
+        for line in raw.splitlines():
+            candidate = line.strip()
+            if len(candidate) > 3 and self._store.add_fact(candidate):
+                added += 1
+        if added:
+            log.info("Consolidated durable facts", extra={"extra_fields": {"added": added}})
 
     async def _announce(self, text: str) -> None:
         """Queues an unprompted announcement (a fired timer) for the main loop
@@ -213,6 +311,10 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         persona_system_prompt=config.persona.system_prompt,
         follow_up_window_s=config.audio.conversation_follow_up_ms / 1000.0,
         bus=bus,
+        store=MemoryStore(config.memory.root),
+        recent_turns_on_start=config.memory.recent_turns_on_start,
+        recall_hits=config.memory.recall_hits,
+        consolidate=config.memory.consolidate,
     )
 
 

@@ -74,6 +74,18 @@ with filler or long preambles. If you don't know something, say so plainly
 instead of guessing.
 """
 
+[memory]
+# Long-term memory lives as plain files you can read and edit: sessions/*.jsonl
+# is the complete turn-by-turn record, facts.md is the distilled part Clio
+# carries between sessions, index.sqlite3 is a derived FTS index that can be
+# deleted and rebuilt from the JSONL at any time. Not committed, see .gitignore.
+root = "memory"
+recent_turns_on_start = 8   # prior turns pulled back in so a restart isn't amnesia
+recall_hits = 4             # past turns retrieved per question - keep small, they cost context
+consolidate = true          # at the end of a conversation, distil durable facts into facts.md
+                            # (one fast-tier call, skipped entirely if the conversation
+                            #  never needed the LLM - so timers stay free)
+
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
 core_port = 8765

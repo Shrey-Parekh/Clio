@@ -90,6 +90,14 @@ class WakeWordConfig:
 
 
 @dataclass(frozen=True)
+class MemoryConfig:
+    root: str
+    recent_turns_on_start: int
+    recall_hits: int
+    consolidate: bool
+
+
+@dataclass(frozen=True)
 class PersonaConfig:
     name: str
     system_prompt: str
@@ -108,6 +116,7 @@ class Config:
     audio: AudioConfig
     wake_word: WakeWordConfig
     persona: PersonaConfig
+    memory: MemoryConfig
     runtime: RuntimeConfig
 
     @staticmethod
@@ -216,6 +225,17 @@ def load_config(root: Path | None = None) -> Config:
             name=_env_override("CLIO_PERSONA", raw["persona"]["name"]),
             system_prompt=_env_override("CLIO_PERSONA_SYSTEM_PROMPT", raw["persona"]["system_prompt"]).strip(),
         )
+        memory = MemoryConfig(
+            root=str(root / _env_override("CLIO_MEMORY_ROOT", raw["memory"]["root"])),
+            recent_turns_on_start=int(
+                _env_override("CLIO_MEMORY_RECENT_TURNS", str(raw["memory"]["recent_turns_on_start"]))
+            ),
+            recall_hits=int(_env_override("CLIO_MEMORY_RECALL_HITS", str(raw["memory"]["recall_hits"]))),
+            consolidate=_env_override(
+                "CLIO_MEMORY_CONSOLIDATE", str(raw["memory"]["consolidate"])
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
+        )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
             core_port=int(_env_override("CLIO_CORE_PORT", str(raw["runtime"]["core_port"]))),
@@ -225,7 +245,15 @@ def load_config(root: Path | None = None) -> Config:
     except ValueError as exc:
         raise ConfigError(f"Malformed config value: {exc}") from exc
 
-    config = Config(llm=llm, speech=speech, audio=audio, wake_word=wake_word, persona=persona, runtime=runtime)
+    config = Config(
+        llm=llm,
+        speech=speech,
+        audio=audio,
+        wake_word=wake_word,
+        persona=persona,
+        memory=memory,
+        runtime=runtime,
+    )
     _validate(config)
     return config
 
@@ -292,6 +320,12 @@ def _validate(config: Config) -> None:
         errors.append("persona.name must not be blank")
     if not config.persona.system_prompt:
         errors.append("persona.system_prompt must not be blank")
+    if config.memory.recent_turns_on_start < 0:
+        errors.append(
+            f"memory.recent_turns_on_start {config.memory.recent_turns_on_start} must not be negative"
+        )
+    if config.memory.recall_hits < 0:
+        errors.append(f"memory.recall_hits {config.memory.recall_hits} must not be negative")
     if config.llm.provider not in _VALID_LLM_PROVIDERS:
         errors.append(f"llm.provider '{config.llm.provider}' must be one of {sorted(_VALID_LLM_PROVIDERS)}")
     for tier in ("fast", "default", "reasoning"):
