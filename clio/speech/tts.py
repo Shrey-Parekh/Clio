@@ -39,6 +39,7 @@ _SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z"\'])')
 _SPEAKABLE = {
     "—": ", ",   # em dash - a comma is the pause it was standing in for
     "–": ", ",   # en dash
+    "‑": "-",    # non-breaking hyphen - a plain hyphen phonemizes fine, this doesn't
     "…": ", ",   # ellipsis
     "’": "'",    # curly apostrophe
     "‘": "'",
