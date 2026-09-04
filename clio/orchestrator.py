@@ -19,7 +19,8 @@ from clio.core.config import Config, ConfigError
 from clio.core.errors import report_error
 from clio.core.events import EventBus
 from clio.core.logging import get_logger
-from clio.core.router import IntentRouter
+from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
+from clio.core.router import IntentRouter, Match
 from clio.llm.memory import ConversationMemory
 from clio.llm.provider import LLMProvider, build_default_provider
 from clio.memory.store import MemoryStore
@@ -97,7 +98,8 @@ class Orchestrator:
         self._announcements: asyncio.Queue[str] = asyncio.Queue()
         self._announcement_ready = asyncio.Event()
         self._timers = TimerCapability(announce=self._announce)
-        self._router = IntentRouter()
+        self._policy = PermissionPolicy()
+        self._router = IntentRouter(self._policy)
         self._register_intents()
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._woke_at: float | None = None
@@ -266,6 +268,36 @@ class Orchestrator:
             return None
         return await self._turn_detector.capture_until_silence(self._frames, onset_frames)
 
+    async def _execute(self, matched: Match) -> str | None:
+        """The permission gate. Nothing runs before its tier is checked."""
+        if matched.permission is Permission.BLOCKED:
+            log.warning("Blocked action refused", extra={"extra_fields": {"intent": matched.intent}})
+            return f"I can't do that one. {matched.description} is off limits."
+
+        if matched.permission is Permission.CONFIRM:
+            if not await self._confirm(f"{matched.description}. Should I go ahead?"):
+                log.info("Action declined", extra={"extra_fields": {"intent": matched.intent}})
+                return "Left it alone."
+
+        return await matched.run()
+
+    async def _confirm(self, prompt: str) -> bool:
+        """Asks out loud and waits for an answer. Silence is a no, as is
+        anything that is not an explicit yes.
+        """
+        session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
+        outcome = await session.respond(prompt, self._frames)
+        if outcome.next_turn is None:
+            return False
+
+        answer = await self._transcribe(outcome.next_turn)
+        granted = is_affirmative(answer)
+        log.info(
+            "Confirmation answered",
+            extra={"extra_fields": {"answer": answer, "granted": granted}},
+        )
+        return granted
+
     def _register_intents(self) -> None:
         """Everything registered here is handled without an API call.
 
@@ -295,9 +327,9 @@ class Orchestrator:
         whether the LLM was used. The caller records the assistant turn
         afterwards, using what was actually spoken.
         """
-        routed = await self._router.route(text)
-        if routed is not None:
-            return routed.reply, False
+        matched = self._router.match(text)
+        if matched is not None:
+            return await self._execute(matched), False
 
         # Retrieval happens only on the LLM path - a deterministic command must
         # not touch the store's search or anything else that could cost time.
