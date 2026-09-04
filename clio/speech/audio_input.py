@@ -101,43 +101,63 @@ class TurnDetector:
         self._min_speech_frames = max(1, round(min_speech_ms / frame_ms))
         self._end_silence_frames = max(1, round(end_silence_ms / frame_ms))
 
-    async def listen_for_turn(self, frames: AsyncIterator[np.ndarray]) -> np.ndarray:
+    async def wait_for_onset(self, frames: AsyncIterator[np.ndarray]) -> list[np.ndarray] | None:
+        """Consume frames until min_speech_ms of continuous speech is detected,
+        filtering brief noise blips. Returns the buffered frames from onset
+        onward (what capture_until_silence needs to resume from), or None if
+        `frames` ended before onset was ever reached. Resets VAD state.
+        """
         self._vad.reset()
 
         pending: list[np.ndarray] = []
-        speech_frames: list[np.ndarray] = []
         speech_run = 0
-        silence_run = 0
-        speaking = False
 
         async for frame in frames:
             prob = self._vad.process(frame)
             is_speech = prob >= self._threshold
 
-            if not speaking:
-                pending.append(frame)
-                if is_speech:
-                    speech_run += 1
-                else:
-                    speech_run = 0
-                    pending = pending[-self._min_speech_frames :]
-                if speech_run >= self._min_speech_frames:
-                    speaking = True
-                    log.debug("Turn started")
-                    speech_frames = pending
-                    pending = []
-                    silence_run = 0
+            pending.append(frame)
+            if is_speech:
+                speech_run += 1
             else:
-                speech_frames.append(frame)
-                if is_speech:
-                    silence_run = 0
-                else:
-                    silence_run += 1
-                    if silence_run >= self._end_silence_frames:
-                        log.debug(
-                            "Turn ended",
-                            extra={"extra_fields": {"frames": len(speech_frames)}},
-                        )
-                        break
+                speech_run = 0
+                pending = pending[-self._min_speech_frames :]
+            if speech_run >= self._min_speech_frames:
+                log.debug("Turn started")
+                return pending
+
+        return None
+
+    async def capture_until_silence(
+        self, frames: AsyncIterator[np.ndarray], onset_frames: list[np.ndarray]
+    ) -> np.ndarray:
+        """Continue from onset_frames (as returned by wait_for_onset), consuming
+        further frames until end_silence_ms of continuous silence. Returns the
+        concatenated turn audio.
+        """
+        speech_frames: list[np.ndarray] = list(onset_frames)
+        silence_run = 0
+
+        async for frame in frames:
+            prob = self._vad.process(frame)
+            is_speech = prob >= self._threshold
+
+            speech_frames.append(frame)
+            if is_speech:
+                silence_run = 0
+            else:
+                silence_run += 1
+                if silence_run >= self._end_silence_frames:
+                    log.debug(
+                        "Turn ended",
+                        extra={"extra_fields": {"frames": len(speech_frames)}},
+                    )
+                    break
 
         return np.concatenate(speech_frames) if speech_frames else np.array([], dtype=np.float32)
+
+    async def listen_for_turn(self, frames: AsyncIterator[np.ndarray]) -> np.ndarray:
+        onset_frames = await self.wait_for_onset(frames)
+        if onset_frames is None:
+            return np.array([], dtype=np.float32)
+        return await self.capture_until_silence(frames, onset_frames)
