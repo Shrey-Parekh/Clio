@@ -124,7 +124,10 @@
 
   Phase 1 works. This makes it *predictable*, which is the bar the brief actually sets.
 
-  - [ ] **2.1** Intent router - deterministic matching ahead of the LLM. Timers, system stats, app launching and conversions never reach the API.
+  - [x] **2.1** Intent router - `clio/core/router.py`. `IntentRouter`: a matcher returns a payload or `None`, a handler turns that payload into what to say (or `None` to stay silent), and registration order is match order. Anything matched is handled without an API call. `_handle_utterance` now routes first and falls through to the LLM only when nothing matches.
+    - Timers and stop commands were two hardcoded branches; both moved onto the router unchanged. No new capabilities were added - those belong in 3.1, where the registry is extracted from working code rather than designed ahead of it.
+    - A matcher that raises is logged and skipped rather than failing the turn, so one bad pattern cannot block the intents registered behind it.
+    - Verified: stop returns silence and timer returns its confirmation, both with zero LLM calls; a normal question still reaches the LLM exactly once; "stop the timer" is not swallowed by the stop intent; a raising matcher falls through to the next one.
   - [ ] **2.2** Permission policy layer - one central Free / Confirm / Blocked classification. Built here because Phase 3 introduces the first destructive capabilities.
   - [ ] **2.3** Retry with backoff, request timeouts, and a fallback path for API failure or rate limiting
   - [ ] **2.4** Graceful degradation - an explicit map of what works offline (timers, file search, app launching, system control) against what does not, and it tells you which
