@@ -19,6 +19,7 @@ from clio.core.config import Config, ConfigError
 from clio.core.errors import report_error
 from clio.core.events import EventBus
 from clio.core.logging import get_logger
+from clio.core.router import IntentRouter
 from clio.llm.memory import ConversationMemory
 from clio.llm.provider import LLMProvider, build_default_provider
 from clio.memory.store import MemoryStore
@@ -96,6 +97,8 @@ class Orchestrator:
         self._announcements: asyncio.Queue[str] = asyncio.Queue()
         self._announcement_ready = asyncio.Event()
         self._timers = TimerCapability(announce=self._announce)
+        self._router = IntentRouter()
+        self._register_intents()
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._woke_at: float | None = None
 
@@ -263,6 +266,22 @@ class Orchestrator:
             return None
         return await self._turn_detector.capture_until_silence(self._frames, onset_frames)
 
+    def _register_intents(self) -> None:
+        """Everything registered here is handled without an API call.
+
+        Stop is registered first: it is the narrowest match, and the phrases
+        used to interrupt her must never be treated as a new request.
+        """
+
+        async def stop(_payload: object) -> None:
+            return None
+
+        async def start_timer(payload: object) -> str:
+            return self._timers.start(float(payload))
+
+        self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
+        self._router.register("timer", parse_timer_command, start_timer)
+
     async def _transcribe(self, audio: np.ndarray) -> str:
         try:
             text = await self._stt.transcribe(audio)
@@ -276,17 +295,9 @@ class Orchestrator:
         whether the LLM was used. The caller records the assistant turn
         afterwards, using what was actually spoken.
         """
-        if is_stop_command(text):
-            # The words used to interrupt her must not themselves become a new
-            # question - "Shut up." going to the LLM is exactly the bug this
-            # exists to prevent. Deterministic, no API call, same as timers.
-            log.info("Deterministic stop command, no API call, no reply")
-            return None, False
-
-        duration_s = parse_timer_command(text)
-        if duration_s is not None:
-            log.info("Deterministic timer match, no API call", extra={"extra_fields": {"duration_s": duration_s}})
-            return self._timers.start(duration_s), False
+        routed = await self._router.route(text)
+        if routed is not None:
+            return routed.reply, False
 
         # Retrieval happens only on the LLM path - a deterministic command must
         # not touch the store's search or anything else that could cost time.
