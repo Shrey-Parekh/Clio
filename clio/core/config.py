@@ -70,6 +70,7 @@ class AudioConfig:
     vad_threshold: float
     vad_min_speech_ms: float
     vad_end_silence_ms: float
+    conversation_follow_up_ms: float
 
 
 @dataclass(frozen=True)
@@ -195,6 +196,11 @@ def load_config(root: Path | None = None) -> Config:
             vad_end_silence_ms=float(
                 _env_override("CLIO_VAD_END_SILENCE_MS", str(raw["audio"]["vad_end_silence_ms"]))
             ),
+            conversation_follow_up_ms=float(
+                _env_override(
+                    "CLIO_CONVERSATION_FOLLOW_UP_MS", str(raw["audio"]["conversation_follow_up_ms"])
+                )
+            ),
         )
         wake_word = WakeWordConfig(
             phrases=_env_list_override("CLIO_WAKE_PHRASES", raw["wake_word"]["phrases"]),
@@ -251,6 +257,10 @@ def _validate(config: Config) -> None:
         errors.append(f"audio.vad_min_speech_ms {config.audio.vad_min_speech_ms} must be positive")
     if config.audio.vad_end_silence_ms <= 0:
         errors.append(f"audio.vad_end_silence_ms {config.audio.vad_end_silence_ms} must be positive")
+    if config.audio.conversation_follow_up_ms <= 0:
+        errors.append(
+            f"audio.conversation_follow_up_ms {config.audio.conversation_follow_up_ms} must be positive"
+        )
     if config.speech.stt_device not in _VALID_STT_DEVICES:
         errors.append(
             f"speech.stt_device '{config.speech.stt_device}' must be one of {sorted(_VALID_STT_DEVICES)}"

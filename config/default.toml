@@ -42,6 +42,8 @@ vad_model_path = "models/silero_vad_16k.onnx"
 vad_threshold = 0.5          # >= this speech probability counts as "speaking"
 vad_min_speech_ms = 250      # continuous speech needed before a turn is confirmed started
 vad_end_silence_ms = 700     # continuous silence needed before a turn is considered ended
+conversation_follow_up_ms = 6000  # how long conversation mode keeps listening after a response
+                                   # before requiring the wake word again
 
 [wake_word]
 # "Daddy is home Clio" was dropped - it failed training twice at the identical score,

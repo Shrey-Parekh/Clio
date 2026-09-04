@@ -25,10 +25,17 @@ class BargeInSpeaker:
         self._engine = engine
         self._turn_detector = turn_detector
 
-    async def speak(self, text: str, frames: AsyncIterator[np.ndarray]) -> np.ndarray | None:
+    async def speak(
+        self, text: str, frames: AsyncIterator[np.ndarray], listen_after_s: float = 0.0
+    ) -> np.ndarray | None:
         """Speak `text` while listening on `frames` for the user to start
-        talking over it. Returns the captured interrupting turn if barged in
-        on, or None if the speech finished without interruption.
+        talking over it. If speech finishes before any onset arrives, keeps
+        listening on the same stream for up to `listen_after_s` more before
+        giving up - a single onset watch spans both phases so a "no
+        interruption yet" outcome never closes `frames` out from under a
+        caller that wants to keep listening (conversation mode's case).
+        Returns the captured turn if the user spoke - whether mid-response or
+        within the extra window - or None if nothing was said.
         """
         speak_task = asyncio.ensure_future(self._engine.speak(text))
         onset_task = asyncio.ensure_future(self._turn_detector.wait_for_onset(frames))
@@ -36,14 +43,12 @@ class BargeInSpeaker:
         done, _pending = await asyncio.wait({speak_task, onset_task}, return_when=asyncio.FIRST_COMPLETED)
 
         if onset_task not in done:
-            onset_task.cancel()
             try:
-                await onset_task
-            except asyncio.CancelledError:
-                pass
-            return None
-
-        onset_frames = onset_task.result()
+                onset_frames = await asyncio.wait_for(onset_task, timeout=listen_after_s)
+            except asyncio.TimeoutError:
+                return None
+        else:
+            onset_frames = onset_task.result()
 
         if not speak_task.done():
             log.info("Barge-in: speech interrupted")
