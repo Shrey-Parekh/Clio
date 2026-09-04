@@ -57,7 +57,10 @@ def _now() -> str:
 
 
 def _normalize(text: str) -> str:
-    return " ".join(text.lower().split())
+    """For dedupe comparison only. Trailing punctuation is stripped because
+    otherwise "Boss" and "Boss." are stored as two separate durable facts,
+    which is exactly what happened in a live session."""
+    return " ".join(text.lower().split()).rstrip(".!?,;:")
 
 
 def _tokenize(query: str) -> list[str]:
@@ -148,7 +151,13 @@ class MemoryStore:
         rows = self._db.execute(sql, params).fetchall()
         return [Turn(ts=r["ts"], role=r["role"], content=r["content"], session=r["session"]) for r in reversed(rows)]
 
-    def search(self, query: str, limit: int = 4, exclude_session: str | None = None) -> list[SearchHit]:
+    def search(
+        self,
+        query: str,
+        limit: int = 4,
+        exclude_session: str | None = None,
+        roles: tuple[str, ...] | None = None,
+    ) -> list[SearchHit]:
         terms = _tokenize(query)
         if not terms:
             return []
@@ -162,6 +171,9 @@ class MemoryStore:
         if exclude_session:
             sql += " AND session != ?"
             params.append(exclude_session)
+        if roles:
+            sql += f" AND role IN ({','.join('?' for _ in roles)})"
+            params.extend(roles)
         sql += " ORDER BY bm25(turns) LIMIT ?"
         params.append(limit)
 
@@ -183,9 +195,17 @@ class MemoryStore:
         ]
 
     def recall(self, query: str, limit: int = 4, exclude_session: str | None = None) -> str:
-        """Facts plus the most relevant past turns, as one block of text ready to
-        prime a model with. Empty string when there's nothing worth recalling -
-        callers should not add an empty system message.
+        """Facts plus relevant things *the user* said before, as one block ready
+        to prime a model with. Empty string when there's nothing worth
+        recalling - callers should not add an empty system message.
+
+        Deliberately never recalls her own replies. Feeding an assistant its own
+        past output back as "relevant context" is a self-reinforcing loop: it
+        answers, the answer is stored, the next question retrieves it, and it
+        answers the same way again. That is not theoretical - it produced three
+        near-identical definitions in a row in a live session while the user was
+        trying to tell a story. What he told her is worth remembering; what she
+        said back is not.
         """
         parts: list[str] = []
 
@@ -193,10 +213,10 @@ class MemoryStore:
         if facts:
             parts.append("What you know about the user:\n" + "\n".join(f"- {f}" for f in facts))
 
-        hits = self.search(query, limit=limit, exclude_session=exclude_session)
+        hits = self.search(query, limit=limit, exclude_session=exclude_session, roles=("user",))
         if hits:
-            lines = [f"- ({h.turn.role}, {h.turn.ts[:10]}) {h.turn.content}" for h in hits]
-            parts.append("Possibly relevant things said before:\n" + "\n".join(lines))
+            lines = [f"- ({h.turn.ts[:10]}) {h.turn.content}" for h in hits]
+            parts.append("Things he has told you before:\n" + "\n".join(lines))
 
         return "\n\n".join(parts)
 

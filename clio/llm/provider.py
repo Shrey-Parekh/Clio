@@ -43,6 +43,14 @@ class ToolCall:
     name: str
     arguments: dict
 
+# A backstop, not the brevity mechanism. Nothing bounded generation at all
+# before this, so one open-ended question could produce a 45-second monologue.
+# Set well above a normal spoken reply (~1-3 sentences) so it only catches
+# runaway output: a hard cap tight enough to enforce brevity would truncate
+# mid-sentence, which sounds worse than a long answer. Brevity itself is the
+# persona's job; this stops the pathological case.
+_MAX_SPOKEN_TOKENS = 320
+
 _MAX_RETRIES = 2
 _BASE_BACKOFF_S = 0.5
 _REQUEST_TIMEOUT_S = 20.0
@@ -104,6 +112,7 @@ class GroqProvider(LLMProvider):
                 messages=messages,
                 stream=True,
                 reasoning_effort=effort,
+                max_completion_tokens=_MAX_SPOKEN_TOKENS,
                 timeout=_REQUEST_TIMEOUT_S,
             )
 
@@ -204,7 +213,16 @@ class OllamaProvider(LLMProvider):
         import urllib.request
 
         loop = asyncio.get_running_loop()
-        body = json.dumps({"model": self._model, "messages": messages, "stream": True}).encode()
+        body = json.dumps(
+            {
+                "model": self._model,
+                "messages": messages,
+                "stream": True,
+                # Same runaway backstop as the Groq path, so the offline
+                # fallback doesn't behave differently from the primary.
+                "options": {"num_predict": _MAX_SPOKEN_TOKENS},
+            }
+        ).encode()
 
         def _open():
             req = urllib.request.Request(

@@ -224,10 +224,14 @@ class Orchestrator:
                 # believing she said things the user never heard.
                 heard = (outcome.spoken_text or "").strip()
                 if outcome.interrupted:
+                    # Worded as "he stopped you, move on", not "unfinished".
+                    # The earlier wording read to the model as an incomplete
+                    # answer, so it retried the same content next turn - three
+                    # near-identical replies in a row in a live session.
                     heard = (
-                        f"{heard} [cut off here - the user interrupted]"
+                        f"{heard} [he cut you off here - he had heard enough, do not repeat this]"
                         if heard
-                        else "[started replying but the user interrupted before anything was said]"
+                        else "[he cut you off before you said anything - drop it and move on]"
                     )
                 if heard:
                     self._memory.add_assistant(heard)
@@ -332,11 +336,16 @@ class Orchestrator:
             return
 
         prompt = (
-            "From this conversation, list any durable facts about the user worth "
+            "From this conversation, list durable facts about the user worth "
             "remembering in future sessions - preferences, ongoing projects, names, "
-            "recurring context. One per line, no bullets, no preamble. Skip anything "
-            "transient (timers, one-off questions). Reply with nothing at all if there "
-            "is nothing worth keeping.\n\n" + transcript
+            "recurring context.\n"
+            "Each line must be a complete standalone statement that still makes sense "
+            "months from now with no other context. Write 'Prefers to be called boss', "
+            "never just 'Boss'. A bare word or fragment is useless later, so skip it.\n"
+            "One per line, no bullets, no preamble. Skip anything transient - timers, "
+            "one-off questions, whatever was merely discussed rather than true about him. "
+            "Most conversations contain nothing worth keeping: reply with nothing at all "
+            "in that case, which is the normal outcome.\n\n" + transcript
         )
 
         try:
