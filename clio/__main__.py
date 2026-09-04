@@ -8,6 +8,8 @@ from clio.core.config import ConfigError, load_config
 from clio.core.errors import describe_error, report_error
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger, setup_logging
+from clio.orchestrator import build_orchestrator
+from clio.speech.audio_input import AudioCapture
 
 
 async def _run(config) -> int:
@@ -49,8 +51,20 @@ async def _run(config) -> int:
     log.info("Clio is running. Press Ctrl+C to stop.")
     exit_code = 0
     try:
-        while running:
+        orchestrator = build_orchestrator(config, bus)
+        capture = AudioCapture()
+        run_task = asyncio.ensure_future(orchestrator.run(capture))
+        while running and not run_task.done():
             await asyncio.sleep(0.2)
+
+        if run_task.done():
+            run_task.result()
+        else:
+            run_task.cancel()
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                pass
     except Exception as exc:
         described = await report_error(bus, exc, context="main run loop", source="clio.startup")
         print(f"Clio hit a problem and is stopping: {described.spoken}", file=sys.stderr)
