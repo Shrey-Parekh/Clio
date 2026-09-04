@@ -109,10 +109,17 @@ class Orchestrator:
             bus=bus,
         )
         if self._store is not None and recent_turns_on_start > 0:
-            self._store.start_session()
-            prior = self._store.recent_turns(
-                limit=recent_turns_on_start, exclude_session=self._store.session_id
-            )
+            try:
+                self._store.start_session()
+                prior = self._store.recent_turns(
+                    limit=recent_turns_on_start, exclude_session=self._store.session_id
+                )
+            except Exception:
+                # A broken long-term store must not stop Clio from starting at
+                # all - fall back to a fresh, in-memory-only conversation.
+                log.exception("Long-term memory unavailable, continuing without it")
+                self._store = None
+                prior = []
             if prior:
                 self._memory.seed([{"role": t.role, "content": t.content} for t in prior])
                 log.info(
@@ -200,10 +207,16 @@ class Orchestrator:
         # Retrieval happens only on the LLM path - a deterministic command must
         # not touch the store's search or anything else that could cost time.
         if self._store is not None and self._recall_hits > 0:
-            recalled = self._store.recall(
-                text, limit=self._recall_hits, exclude_session=self._store.session_id
-            )
-            self._memory.set_recalled(recalled or None)
+            try:
+                recalled = self._store.recall(
+                    text, limit=self._recall_hits, exclude_session=self._store.session_id
+                )
+                self._memory.set_recalled(recalled or None)
+            except Exception as exc:
+                # A broken index must degrade the answer (no recalled context this
+                # turn), never take down the conversation that asked the question.
+                await report_error(self._bus, exc, context="memory recall", source="clio.orchestrator")
+                self._memory.set_recalled(None)
 
         try:
             reply = await self._llm.complete(self._memory.get_messages())
@@ -252,10 +265,17 @@ class Orchestrator:
             return
 
         added = 0
-        for line in raw.splitlines():
-            candidate = line.strip()
-            if len(candidate) > 3 and self._store.add_fact(candidate):
-                added += 1
+        try:
+            for line in raw.splitlines():
+                candidate = line.strip()
+                if len(candidate) > 3 and self._store.add_fact(candidate):
+                    added += 1
+        except Exception as exc:
+            # Facts not written this round is a shrug, not a crash - the run
+            # must survive to keep listening either way.
+            await report_error(
+                self._bus, exc, context="fact consolidation write", source="clio.orchestrator"
+            )
         if added:
             log.info("Consolidated durable facts", extra={"extra_fields": {"added": added}})
 
@@ -311,11 +331,25 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         persona_system_prompt=config.persona.system_prompt,
         follow_up_window_s=config.audio.conversation_follow_up_ms / 1000.0,
         bus=bus,
-        store=MemoryStore(config.memory.root),
+        store=_build_memory_store(config),
         recent_turns_on_start=config.memory.recent_turns_on_start,
         recall_hits=config.memory.recall_hits,
         consolidate=config.memory.consolidate,
     )
+
+
+def _build_memory_store(config: Config) -> MemoryStore | None:
+    """A broken long-term store (bad path, permissions, disk full) must not
+    stop Clio from starting at all - she runs with in-memory-only conversation
+    instead. Every later use of the store is already guarded the same way."""
+    try:
+        return MemoryStore(config.memory.root)
+    except Exception:
+        log.exception(
+            "Long-term memory unavailable at startup, continuing without it",
+            extra={"extra_fields": {"root": config.memory.root}},
+        )
+        return None
 
 
 def _build_stt(config: Config) -> STTEngine:

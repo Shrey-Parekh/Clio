@@ -167,7 +167,10 @@ class MemoryStore:
 
         try:
             rows = self._db.execute(sql, params).fetchall()
-        except sqlite3.OperationalError as exc:
+        except sqlite3.Error as exc:
+            # Broad on purpose: a corrupted or locked index file raises
+            # DatabaseError, not OperationalError, and recall failing must
+            # degrade the answer, never crash the turn that asked the question.
             log.warning("Memory search failed", extra={"extra_fields": {"query": query, "error": str(exc)}})
             return []
 
@@ -202,8 +205,13 @@ class MemoryStore:
     def facts(self) -> list[str]:
         if not self._facts_path.exists():
             return []
+        try:
+            text = self._facts_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            log.warning("Failed to read facts.md", extra={"extra_fields": {"error": str(exc)}})
+            return []
         out: list[str] = []
-        for line in self._facts_path.read_text(encoding="utf-8").splitlines():
+        for line in text.splitlines():
             stripped = line.strip()
             if stripped.startswith("- "):
                 fact = stripped[2:].strip()
