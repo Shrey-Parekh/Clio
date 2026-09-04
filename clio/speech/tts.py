@@ -31,12 +31,44 @@ _ABBREVIATIONS = {
 # splitting on things like "3.5 flash" or "192.168.1.1".
 _SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z"\'])')
 
+# What a model writes and what speaks well are different things. Models reach for
+# typographic punctuation constantly - em dashes with nothing around them
+# ("means—sounds"), curly quotes, ellipses - and the phonemizer either runs the
+# words together or tries to pronounce the character itself. Normalising here is
+# far more reliable than asking the model not to use them.
+_SPEAKABLE = {
+    "—": ", ",   # em dash - a comma is the pause it was standing in for
+    "–": ", ",   # en dash
+    "…": ", ",   # ellipsis
+    "’": "'",    # curly apostrophe
+    "‘": "'",
+    "“": "",     # curly quotes - spoken quotes only add phonemizer noise
+    "”": "",
+    " ": " ",    # non-breaking space
+    "&": " and ",
+    "%": " percent",
+    "*": "",          # stray markdown emphasis that slipped through
+    "#": "",
+}
+
+
+def normalize_for_speech(text: str) -> str:
+    """Make text say-able. Kokoro reads what it is given literally, so anything
+    typographic has to become either a pause or a word before it gets there."""
+    for source, replacement in _SPEAKABLE.items():
+        text = text.replace(source, replacement)
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)  # no space before punctuation
+    text = re.sub(r",\s*,", ",", text)            # collapse doubled commas
+    text = re.sub(r",\s*$", ".", text)            # a trailing comma reads as an unfinished thought
+    return text.strip()
+
 
 def split_sentences(text: str) -> list[str]:
     """Split text into speakable chunks, merging back fragments that ended on
     a common abbreviation (so "Dr. Smith called" doesn't split after "Dr.").
     """
-    text = text.strip()
+    text = normalize_for_speech(text)
     if not text:
         return []
 

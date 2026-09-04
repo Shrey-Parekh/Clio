@@ -8,6 +8,7 @@ of separate modules.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 
 import numpy as np
@@ -95,6 +96,7 @@ class Orchestrator:
         self._announcement_ready = asyncio.Event()
         self._timers = TimerCapability(announce=self._announce)
         self._frames: AsyncIterator[np.ndarray] | None = None
+        self._woke_at: float | None = None
 
         self._store = store
         self._recall_hits = recall_hits
@@ -147,6 +149,7 @@ class Orchestrator:
             # user gets silence and assumes it didn't hear them (12 of the 20
             # seconds in the first live test were exactly that).
             play_wake_cue()
+            self._woke_at = time.monotonic()
             log.info("Wake word triggered", extra={"extra_fields": {"phrase": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
@@ -178,13 +181,34 @@ class Orchestrator:
             if not text:
                 break
 
-            log.info("User turn", extra={"extra_fields": {"text": text}})
+            heard_at = time.monotonic()
+            log.info(
+                "User turn",
+                extra={
+                    "extra_fields": {
+                        "text": text,
+                        "since_wake_s": round(heard_at - self._woke_at, 2) if self._woke_at else None,
+                    }
+                },
+            )
             self._memory.add_user(text)
             self._record(role="user", content=text)
 
             reply_text, turn_used_llm = await self._handle_utterance(text)
             used_llm = used_llm or turn_used_llm
 
+            # Where the time actually goes, so "it felt slow" can be diagnosed
+            # from the log instead of guessed at.
+            log.info(
+                "Reply ready",
+                extra={
+                    "extra_fields": {
+                        "think_s": round(time.monotonic() - heard_at, 2),
+                        "chars": len(reply_text),
+                        "used_llm": turn_used_llm,
+                    }
+                },
+            )
             session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
             outcome = await session.respond(reply_text, self._frames)
 
