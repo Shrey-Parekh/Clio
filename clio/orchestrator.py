@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.timer import TimerCapability, parse_timer_command
 from clio.core.config import Config, ConfigError
@@ -103,6 +104,7 @@ class Orchestrator:
         self._register_intents()
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._woke_at: float | None = None
+        self._announced_degraded = False
 
         self._store = store
         self._recall_hits = recall_hits
@@ -311,6 +313,18 @@ class Orchestrator:
         async def start_timer(payload: object) -> str:
             return self._timers.start(float(payload))
 
+        async def status(_payload: object) -> str:
+            offline_ready = ", ".join(n for n in self._router.names if n != "status")
+            state = getattr(self._llm, "using_fallback", None)
+            if state is None:
+                head = "Haven't needed the cloud model yet this session."
+            elif state:
+                head = "Running on the local model, the cloud one is unreachable."
+            else:
+                head = "Cloud model is up."
+            return f"{head} Speech, memory and {offline_ready} all work with no network at all."
+
+        self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
         self._router.register("timer", parse_timer_command, start_timer)
 
@@ -350,6 +364,13 @@ class Orchestrator:
         except Exception as exc:
             described = await report_error(self._bus, exc, context="LLM response", source="clio.orchestrator")
             return described.spoken, False
+
+        if getattr(self._llm, "using_fallback", None) is True:
+            if not self._announced_degraded:
+                self._announced_degraded = True
+                reply = f"Heads up, the cloud model is unreachable so I'm on the local one. {reply}"
+        else:
+            self._announced_degraded = False
 
         return reply, True
 

@@ -303,6 +303,9 @@ class FallbackLLMProvider(LLMProvider):
     def __init__(self, primary: LLMProvider, fallback: LLMProvider):
         self._primary = primary
         self._fallback = fallback
+        # Which model answered last: None until a call has been made, so status
+        # can say "not tried yet" instead of asserting the cloud is fine.
+        self.using_fallback: bool | None = None
 
     async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
         last_error: Exception | None = None
@@ -312,6 +315,7 @@ class FallbackLLMProvider(LLMProvider):
             try:
                 async for chunk in self._primary.stream(messages, tier):
                     emitted = True
+                    self.using_fallback = False
                     yield chunk
                 return
             except LLMError as exc:
@@ -342,6 +346,7 @@ class FallbackLLMProvider(LLMProvider):
         )
         try:
             async for chunk in self._fallback.stream(messages, tier):
+                self.using_fallback = True
                 yield chunk
         except LLMError as exc:
             raise LLMError(f"Both primary and fallback LLM failed. Primary: {last_error}. Fallback: {exc}") from exc

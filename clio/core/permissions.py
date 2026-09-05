@@ -29,6 +29,7 @@ class Permission(Enum):
 _DEFAULT_RULES: dict[str, Permission] = {
     "timer": Permission.FREE,
     "stop": Permission.FREE,
+    "status": Permission.FREE,
 }
 
 _AFFIRMATIVE = {
