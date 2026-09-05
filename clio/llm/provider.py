@@ -57,6 +57,12 @@ class LLMError(Exception):
     """A provider call failed. Transient by default - worth retrying."""
 
 
+class LLMRateLimited(LLMError):
+    """Rate limited. Retrying inside our retry window will not clear it, and the
+    local fallback is free and already running, so go there instead of waiting.
+    """
+
+
 class LLMPermanentError(LLMError):
     """A provider call failed in a way retrying can't fix (bad model name, auth
     failure, malformed request). FallbackLLMProvider skips the retry-with-backoff
@@ -115,8 +121,10 @@ class GroqProvider(LLMProvider):
 
         try:
             groq_stream = await asyncio.wait_for(loop.run_in_executor(None, _open_stream), timeout=_REQUEST_TIMEOUT_S)
-        except (groq.APIConnectionError, groq.APITimeoutError, groq.RateLimitError, groq.InternalServerError) as exc:
-            # Transient: network blip, momentary rate limit, Groq-side 5xx. Worth retrying.
+        except groq.RateLimitError as exc:
+            raise LLMRateLimited(f"Groq rate limited: {exc}") from exc
+        except (groq.APIConnectionError, groq.APITimeoutError, groq.InternalServerError) as exc:
+            # Transient: network blip, Groq-side 5xx. Worth retrying.
             raise LLMError(f"Groq unreachable: {exc}") from exc
         except (
             groq.AuthenticationError,
@@ -298,21 +306,28 @@ class FallbackLLMProvider(LLMProvider):
 
     async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
         last_error: Exception | None = None
+        emitted = False
+
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 async for chunk in self._primary.stream(messages, tier):
+                    emitted = True
                     yield chunk
                 return
-            except LLMPermanentError as exc:
-                # No point retrying a bad model name or invalid key - fall back now.
-                last_error = exc
-                log.warning(
-                    "Primary LLM failed permanently, skipping retries",
-                    extra={"extra_fields": {"error": str(exc)}},
-                )
-                break
             except LLMError as exc:
+                # Once chunks have gone out the caller already has that text.
+                # Retrying or falling back would send the whole reply a second
+                # time on top of it, so this failure is final.
+                if emitted:
+                    raise
+
                 last_error = exc
+                if isinstance(exc, (LLMPermanentError, LLMRateLimited)):
+                    log.warning(
+                        "Primary LLM failed, skipping retries",
+                        extra={"extra_fields": {"error": str(exc), "reason": type(exc).__name__}},
+                    )
+                    break
                 if attempt < _MAX_RETRIES:
                     backoff = _BASE_BACKOFF_S * (2**attempt)
                     log.warning(
