@@ -30,6 +30,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "timer": Permission.FREE,
     "stop": Permission.FREE,
     "status": Permission.FREE,
+    "repeat": Permission.FREE,
 }
 
 _AFFIRMATIVE = {

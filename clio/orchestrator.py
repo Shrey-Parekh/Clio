@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.timer import TimerCapability, parse_timer_command
@@ -105,6 +106,7 @@ class Orchestrator:
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._woke_at: float | None = None
         self._announced_degraded = False
+        self._last_match: Match | None = None
 
         self._store = store
         self._recall_hits = recall_hits
@@ -281,6 +283,10 @@ class Orchestrator:
                 log.info("Action declined", extra={"extra_fields": {"intent": matched.intent}})
                 return "Left it alone."
 
+        # Remembered only once it has actually run, so "again" never repeats
+        # something that was refused or declined.
+        if matched.intent != "repeat":
+            self._last_match = matched
         return await matched.run()
 
     async def _confirm(self, prompt: str) -> bool:
@@ -313,6 +319,14 @@ class Orchestrator:
         async def start_timer(payload: object) -> str:
             return self._timers.start(float(payload))
 
+        async def repeat(_payload: object) -> str | None:
+            if self._last_match is None:
+                return "You haven't asked me to do anything yet."
+            log.info("Repeating", extra={"extra_fields": {"intent": self._last_match.intent}})
+            # Back through the gate, not straight to run(): a confirm-tier action
+            # must ask again every time, including when it is being repeated.
+            return await self._execute(self._last_match)
+
         async def status(_payload: object) -> str:
             offline_ready = ", ".join(n for n in self._router.names if n != "status")
             state = getattr(self._llm, "using_fallback", None)
@@ -324,6 +338,7 @@ class Orchestrator:
                 head = "Cloud model is up."
             return f"{head} Speech, memory and {offline_ready} all work with no network at all."
 
+        self._router.register("repeat", lambda t: True if is_repeat_command(t) else None, repeat)
         self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
         self._router.register("timer", parse_timer_command, start_timer)
