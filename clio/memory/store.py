@@ -84,12 +84,27 @@ class MemoryStore:
         self._index_path = self._root / "index.sqlite3"
 
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
+        self._session_id: str = ""
+        self._session_path: Path | None = None
+
+        try:
+            self._open_index()
+        except sqlite3.Error:
+            # The index is a cache over the transcripts, so a corrupt one costs
+            # nothing but the time to rebuild. Raising here would instead throw
+            # away intact plain files and start with no memory at all.
+            log.warning("Memory index unreadable, rebuilding from transcripts")
+            # connect() succeeds lazily on a corrupt file and only fails at
+            # schema time, so the handle is open and Windows will not delete it.
+            self.close()
+            self._index_path.unlink(missing_ok=True)
+            self._open_index()
+            self.rebuild_index()
+
+    def _open_index(self) -> None:
         self._db = sqlite3.connect(self._index_path)
         self._db.row_factory = sqlite3.Row
         self._ensure_schema()
-
-        self._session_id: str = ""
-        self._session_path: Path | None = None
 
     def _ensure_schema(self) -> None:
         self._db.executescript(
