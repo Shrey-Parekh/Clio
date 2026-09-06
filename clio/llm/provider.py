@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from clio.core.config import Config
 from clio.core.logging import get_logger
+from clio.core.usage import Usage, UsageTracker
 
 log = get_logger("clio.llm.provider")
 
@@ -93,6 +94,7 @@ class GroqProvider(LLMProvider):
     def __init__(self, config: Config):
         self._config = config
         self._client = None
+        self.usage = UsageTracker()
 
     def _ensure_client(self):
         if self._client is None:
@@ -153,6 +155,22 @@ class GroqProvider(LLMProvider):
                 raise LLMError(f"Groq stream stalled (tier={tier})") from exc
             if done:
                 return
+            # Groq puts exact counts on the final chunk without stream_options,
+            # so accounting costs nothing extra.
+            reported = getattr(chunk, "usage", None)
+            if reported is not None:
+                details = getattr(reported, "completion_tokens_details", None)
+                self.usage.record(
+                    Usage(
+                        model=model,
+                        tier=tier,
+                        prompt_tokens=reported.prompt_tokens or 0,
+                        completion_tokens=reported.completion_tokens or 0,
+                        reasoning_tokens=getattr(details, "reasoning_tokens", 0) or 0,
+                    )
+                )
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta
@@ -210,6 +228,7 @@ class OllamaProvider(LLMProvider):
     """
 
     def __init__(self, model: str, host: str):
+        self.usage = UsageTracker()
         self._model = model
         self._host = host.rstrip("/")
 
@@ -306,6 +325,12 @@ class FallbackLLMProvider(LLMProvider):
         # Which model answered last: None until a call has been made, so status
         # can say "not tried yet" instead of asserting the cloud is fine.
         self.using_fallback: bool | None = None
+
+    @property
+    def usage(self) -> UsageTracker:
+        """Whichever model is answering owns the numbers."""
+        source = self._fallback if self.using_fallback else self._primary
+        return getattr(source, "usage", UsageTracker())
 
     async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
         last_error: Exception | None = None

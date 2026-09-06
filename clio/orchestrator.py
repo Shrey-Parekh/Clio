@@ -215,6 +215,7 @@ class Orchestrator:
                         "think_s": round(time.monotonic() - heard_at, 2),
                         "chars": len(reply_text) if reply_text else 0,
                         "used_llm": turn_used_llm,
+                        **(self._last_usage_fields() if turn_used_llm else {}),
                     }
                 },
             )
@@ -336,12 +337,24 @@ class Orchestrator:
                 head = "Running on the local model, the cloud one is unreachable."
             else:
                 head = "Cloud model is up."
-            return f"{head} Speech, memory and {offline_ready} all work with no network at all."
+            tracker = getattr(self._llm, "usage", None)
+            spend = tracker.summary() if tracker is not None else ""
+            return (
+                f"{head} Speech, memory and {offline_ready} all work with no network at all. {spend}"
+            ).strip()
 
         self._router.register("repeat", lambda t: True if is_repeat_command(t) else None, repeat)
         self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
         self._router.register("timer", parse_timer_command, start_timer)
+
+    def _last_usage_fields(self) -> dict:
+        """Token counts for the call just made, folded into the turn's log line
+        so one record carries what was decided, how long it took and what it
+        cost."""
+        tracker = getattr(self._llm, "usage", None)
+        last = getattr(tracker, "last", None)
+        return last.as_fields() if last is not None else {}
 
     async def _transcribe(self, audio: np.ndarray) -> str:
         try:
