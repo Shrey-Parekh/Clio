@@ -13,13 +13,15 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.correction import parse_correction
+from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.timer import TimerCapability, parse_timer_command
 from clio.core.config import Config, ConfigError
-from clio.core.errors import report_error
-from clio.core.events import EventBus
+from clio.core.errors import ERROR_EVENT, report_error
+from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
 from clio.core.router import IntentRouter, Match
@@ -107,6 +109,12 @@ class Orchestrator:
         self._woke_at: float | None = None
         self._announced_degraded = False
         self._last_match: Match | None = None
+        self._last_failure: dict | None = None
+        if bus is not None:
+            # Subscribed rather than recorded at each call site: every failure
+            # anywhere in the app already passes through report_error and onto
+            # the bus, including the ones raised inside TTS and summarization.
+            bus.subscribe(ERROR_EVENT, self._remember_failure)
 
         self._store = store
         self._recall_hits = recall_hits
@@ -328,6 +336,9 @@ class Orchestrator:
             # must ask again every time, including when it is being repeated.
             return await self._execute(self._last_match)
 
+        async def diagnose(_payload: object) -> str:
+            return explain_failure(self._last_failure)
+
         async def status(_payload: object) -> str:
             offline_ready = ", ".join(n for n in self._router.names if n != "status")
             state = getattr(self._llm, "using_fallback", None)
@@ -344,9 +355,29 @@ class Orchestrator:
             ).strip()
 
         self._router.register("repeat", lambda t: True if is_repeat_command(t) else None, repeat)
+        self._router.register("diagnose", lambda t: True if is_diagnosis_query(t) else None, diagnose)
         self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
         self._router.register("timer", parse_timer_command, start_timer)
+
+    async def _remember_failure(self, event: Event) -> None:
+        self._last_failure = {**event.payload, "at": event.timestamp}
+
+    def _record_correction(self, text: str) -> None:
+        """A correction becomes a standing rule in his own words, kept beside
+        the other durable facts - so it is in front of her every later session,
+        before the situation it came from can repeat.
+        """
+        if self._store is None:
+            return
+        rule = parse_correction(text)
+        if rule is None:
+            return
+        try:
+            if self._store.add_fact(rule, category="Corrections"):
+                log.info("Correction recorded", extra={"extra_fields": {"rule": rule}})
+        except Exception:
+            log.exception("Failed to record correction")
 
     def _last_usage_fields(self) -> dict:
         """Token counts for the call just made, folded into the turn's log line
@@ -369,6 +400,10 @@ class Orchestrator:
         whether the LLM was used. The caller records the assistant turn
         afterwards, using what was actually spoken.
         """
+        # Before routing: correcting her is also a normal turn, and gets
+        # answered like one - recording it must not swallow the reply.
+        self._record_correction(text)
+
         matched = self._router.match(text)
         if matched is not None:
             return await self._execute(matched), False
