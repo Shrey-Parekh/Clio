@@ -163,7 +163,18 @@
     - Cost is reported only where a rate is known, and `_RATES` ships empty because the current stack (Groq free tiers, local Ollama) bills nothing. Zero is the truth here rather than an invented price; add a rate if a paid model is ever wired in.
     - `FallbackLLMProvider.usage` reports whichever model actually answered, so a degraded turn is not attributed to the cloud model. The `status` intent now reports the session total out loud.
     - Standing check at `tests/test_usage.py`. The decision trace itself was already there - `logs/clio.jsonl` records intent, permission tier, latency and errors - so this only added the missing numbers rather than a second logging system.
-  - [ ] **2.9** Lazy loading and footprint audit - measure idle CPU and RAM, defer every heavy model until first use
+  - [x] **2.9** Lazy loading and footprint audit - a measurement task, not a code one. Every heavy model was already lazy (`_ensure_loaded` on Kokoro, faster-whisper and the wake models); what was never measured is what the pre-warming added during 1.13's live debugging actually costs.
+    - Measured on this machine (31.7 GB RAM, 20 logical cores), idle and waiting for the wake word:
+
+      | | RAM | CPU (one core) | first reply |
+      |---|---|---|---|
+      | `prewarm = true` (default) | **1,817 MB** (5.6% of system) | 4.4% | fast, ~0.2s synth |
+      | `prewarm = false` | **193 MB** (0.6%) | 6.3% | +~7s of model loading |
+
+    - **CPU is the same either way** - about 5% of one core, 0.25% of the machine. That is the wake word plus VAD running continuously, and it confirms 1.5's claim (1.95-2.28% for the wake models) with the audio pipeline on top. The always-on part is genuinely cheap, which was the constraint that mattered.
+    - **RAM is the whole trade: pre-warming costs 1.6 GB resident, permanently.** Kept `true` as the default because the 20-30s first-response delay was a real complaint from live use and 1.8 GB of 31.7 GB is affordable, but `memory.prewarm = false` is the documented lever for anyone who would rather have the RAM back - now with real numbers behind the choice rather than a guess.
+    - **Not measured, honestly:** per-process VRAM. This GPU reports `[N/A]` for compute-app memory under WDDM, and Ollama plus a running game made the system total useless for attribution. Recorded as unknown rather than estimated.
+    - No runtime footprint logging was added. The task asked for a measurement, and a monitoring subsystem for a number that changes only when models load would be the wrong trade.
   - [ ] **2.10** Self-diagnosis and feedback learning - when a tool call fails, Clio reads her own trace from 2.8 and explains what actually happened, not a generic "something went wrong." When you correct her - wrong assumption, bad call, preference she should have known - that correction is written to persistent memory (2.5) as a standing rule, checked before the same situation repeats. Scope to confirm: does a correction apply narrowly (this exact tool, these exact conditions) or should it generalise (this capability, or this kind of mistake in general)? Getting that wrong in either direction is worse than being conservative at first.
 
   *Verify:* Pull the network mid-conversation and it degrades honestly instead of hanging.
