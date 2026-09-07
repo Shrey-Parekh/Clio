@@ -192,7 +192,12 @@
   First real breadth. The registry is extracted *from* working capabilities rather than designed
   ahead of them.
 
-  - [ ] **3.1** Capability registry - extract the pattern from timers into a registration interface: schema, permission tier, offline-capable flag, handler
+  - [x] **3.1** Capability registry - extended `IntentRouter` rather than building a registry beside it. Registration was already matcher plus handler; what the interface was missing was the offline flag and any way to list what exists without running it.
+    - **The offline flag is the part that was actually missing, and 3.2 needs it immediately.** `status` answered "what still works with no network" by listing every registered intent and excluding itself - true only while every capability happened to be local. Weather and currency conversion in 3.2 are not, and would have been announced as offline-ready. It is now each capability's own declaration, since only the capability knows.
+    - **The permission tier is deliberately not declared at registration.** A capability that names its own tier means adding one can quietly grant it authority; the policy assigns it, and anything unclassified is CONFIRM. Registering now resolves the tier immediately, so an unclassified capability shows up in the log at startup instead of at first use.
+    - `capabilities()` lists name, tier and offline claim without running anything - what `status` reads, and what the 5.5 settings UI will.
+    - Registration stayed in `_register_intents`. Moving each capability's registration into its own module is a real question at eight more capabilities, not at five, and the interface is the same either way.
+    - `IntentRouter.names` deleted - `capabilities()` replaces its one caller. Standing check at `tests/test_registry.py`.
   - [ ] **3.2** Deterministic utilities - unit and currency conversion, calculations, weather. Zero LLM involvement.
   - [ ] **3.3** System monitoring - CPU, GPU, RAM, disk, temperatures, and what is eating resources
   - [ ] **3.4** Opening things - launch apps, open files, folders, URLs and projects by natural name

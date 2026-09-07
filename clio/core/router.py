@@ -11,6 +11,12 @@ Registration order is match order: register narrower intents first.
 Matching and running are separate steps. The permission tier sits between them,
 so an action needing confirmation is recognised but not performed until the
 caller has actually asked.
+
+Registering is also how a capability is declared: `capabilities()` lists what
+exists, its tier, and whether it needs the network, without running anything.
+This is the registry, extracted from four working capabilities rather than
+designed ahead of them - matcher, handler, offline claim, and a tier the
+policy assigns rather than the capability itself.
 """
 
 from __future__ import annotations
@@ -34,6 +40,17 @@ class Intent:
     match: Matcher
     handle: Handler
     describe: Describer | None = None
+    offline: bool = True
+
+
+@dataclass(frozen=True)
+class Capability:
+    """One registered capability, for anything that needs to list them rather
+    than run them - what still works with no network, and the settings UI."""
+
+    name: str
+    permission: Permission
+    offline: bool
 
 
 @dataclass(frozen=True)
@@ -62,12 +79,35 @@ class IntentRouter:
         match: Matcher,
         handle: Handler,
         describe: Describer | None = None,
+        offline: bool = True,
     ) -> None:
-        self._intents.append(Intent(name=name, match=match, handle=handle, describe=describe))
+        """`offline` is the capability's own claim about needing the network -
+        a timer does not, weather does. It is declared here because only the
+        capability knows; the permission tier is not, because letting one
+        declare its own risk would mean adding a capability could quietly grant
+        it authority. Registering resolves the tier now rather than at first
+        use, so an unclassified capability is visible at startup.
+        """
+        self._intents.append(
+            Intent(name=name, match=match, handle=handle, describe=describe, offline=offline)
+        )
+        log.info(
+            "Capability registered",
+            extra={
+                "extra_fields": {
+                    "capability": name,
+                    "permission": self._policy.tier(name).value,
+                    "offline": offline,
+                }
+            },
+        )
 
-    @property
-    def names(self) -> list[str]:
-        return [i.name for i in self._intents]
+    def capabilities(self) -> list[Capability]:
+        """Everything registered, in match order."""
+        return [
+            Capability(name=i.name, permission=self._policy.tier(i.name), offline=i.offline)
+            for i in self._intents
+        ]
 
     def match(self, text: str) -> Match | None:
         """Returns None when nothing matches, meaning the caller should fall

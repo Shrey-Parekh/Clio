@@ -340,7 +340,11 @@ class Orchestrator:
             return explain_failure(self._last_failure)
 
         async def status(_payload: object) -> str:
-            offline_ready = ", ".join(n for n in self._router.names if n != "status")
+            # Asked from the registry, not hardcoded: a capability that needs
+            # the network must not be listed as working without one.
+            offline_ready = ", ".join(
+                c.name for c in self._router.capabilities() if c.offline and c.name != "status"
+            )
             state = getattr(self._llm, "using_fallback", None)
             if state is None:
                 head = "Haven't needed the cloud model yet this session."
