@@ -198,7 +198,15 @@
     - `capabilities()` lists name, tier and offline claim without running anything - what `status` reads, and what the 5.5 settings UI will.
     - Registration stayed in `_register_intents`. Moving each capability's registration into its own module is a real question at eight more capabilities, not at five, and the interface is the same either way.
     - `IntentRouter.names` deleted - `capabilities()` replaces its one caller. Standing check at `tests/test_registry.py`.
-  - [ ] **3.2** Deterministic utilities - unit and currency conversion, calculations, weather. Zero LLM involvement.
+  - [x] **3.2** Deterministic utilities - `calculate.py`, `convert.py`, `currency.py`, `weather.py`. Four capabilities, zero LLM calls, and no new dependency: `urllib` on a thread rather than an HTTP client, since between them the two network ones make one request each.
+    - **Arithmetic is evaluated by walking the parse tree, never `eval`.** The transcriber will eventually mishear something into the expression, and an assistant that executes what it mishears is a different class of problem from one that gets a sum wrong. `__import__('os').system(...)` and `2 ** 999999999` are both in the standing check - the second because a huge exponent would hang the loop that is also carrying the microphone.
+    - Anything that isn't clearly a sum returns None and falls through to conversation rather than being guessed at. Same contract as timers, for the same reason.
+    - **Temperature is affine, so it converts through celsius rather than by a factor.** A factor table gets every other unit right and silently produces nonsense for this one, because 20C is not twice 10C.
+    - Mismatched dimensions are refused: "5 miles in kilograms" gets no answer instead of a meaningless number.
+    - **Currency is the one thing here that cannot be offline** - a rate is a fact about today, and a cached one quoted confidently is worse than saying it is unavailable. Frankfurter (ECB daily reference rates) needs no key or account, and the request carries an amount and two currency codes and nothing else. These are reference rates, not a trading price.
+    - **Weather sends coordinates, which are the only genuinely personal thing any of these transmits, so it is opt-in.** `[location]` ships empty; until it is filled in she says she doesn't know where you are rather than inferring it from the IP address. Open-Meteo, also keyless.
+    - Both network capabilities register `offline=False`, so 3.1's `status` stops claiming them during an outage - the reason that flag was built.
+    - Verified live against both APIs, not only against the mocks in `tests/test_utilities.py`.
   - [ ] **3.3** System monitoring - CPU, GPU, RAM, disk, temperatures, and what is eating resources
   - [ ] **3.4** Opening things - launch apps, open files, folders, URLs and projects by natural name
   - [ ] **3.5** Window and system control - focus, minimise, arrange, volume, brightness, lock, sleep, monitor switching

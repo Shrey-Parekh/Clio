@@ -135,6 +135,14 @@ consolidate = true          # at the end of a conversation, distil durable facts
                             # (one fast-tier call, skipped entirely if the conversation
                             #  never needed the LLM - so timers stay free)
 
+[location]
+# Used only for weather, and only once you fill it in. Both coordinates left at
+# zero means Clio says she doesn't know where you are rather than guessing from
+# your IP address - these are the only personal details any utility sends out.
+name = ""                 # spoken aloud: "It's 21 degrees in Mumbai"
+latitude = 0.0
+longitude = 0.0
+
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
 core_port = 8765

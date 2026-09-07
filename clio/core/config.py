@@ -118,6 +118,21 @@ class PersonaConfig:
 
 
 @dataclass(frozen=True)
+class LocationConfig:
+    """Where "outside" is. Empty by default and never inferred - coordinates
+    leave the machine when weather is asked for, so setting them is a choice
+    rather than something that happens quietly on first use."""
+
+    name: str
+    latitude: float
+    longitude: float
+
+    @property
+    def configured(self) -> bool:
+        return self.latitude != 0.0 or self.longitude != 0.0
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -131,6 +146,7 @@ class Config:
     wake_word: WakeWordConfig
     persona: PersonaConfig
     memory: MemoryConfig
+    location: LocationConfig
     runtime: RuntimeConfig
 
     @staticmethod
@@ -256,6 +272,14 @@ def load_config(root: Path | None = None) -> Config:
             .lower()
             in {"1", "true", "yes", "on"},
         )
+        # Defaulted rather than required: an existing config file without a
+        # [location] section must keep starting, just without weather.
+        location_raw = raw.get("location", {})
+        location = LocationConfig(
+            name=_env_override("CLIO_LOCATION_NAME", location_raw.get("name", "")),
+            latitude=float(_env_override("CLIO_LATITUDE", str(location_raw.get("latitude", 0.0)))),
+            longitude=float(_env_override("CLIO_LONGITUDE", str(location_raw.get("longitude", 0.0)))),
+        )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
             core_port=int(_env_override("CLIO_CORE_PORT", str(raw["runtime"]["core_port"]))),
@@ -272,6 +296,7 @@ def load_config(root: Path | None = None) -> Config:
         wake_word=wake_word,
         persona=persona,
         memory=memory,
+        location=location,
         runtime=runtime,
     )
     _validate(config)

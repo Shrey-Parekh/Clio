@@ -32,6 +32,11 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "status": Permission.FREE,
     "repeat": Permission.FREE,
     "diagnose": Permission.FREE,
+    # Read-only and answer-only: none of them change anything on the machine.
+    "calculate": Permission.FREE,
+    "convert": Permission.FREE,
+    "currency": Permission.FREE,
+    "weather": Permission.FREE,
 }
 
 _AFFIRMATIVE = {

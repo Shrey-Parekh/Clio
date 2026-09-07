@@ -13,13 +13,17 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.calculate import format_number, parse_calculation
+from clio.capabilities.convert import format_conversion, parse_conversion
 from clio.capabilities.correction import parse_correction
+from clio.capabilities.currency import convert_currency, parse_currency_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.timer import TimerCapability, parse_timer_command
-from clio.core.config import Config, ConfigError
+from clio.capabilities.weather import describe_weather, is_weather_query
+from clio.core.config import Config, ConfigError, LocationConfig
 from clio.core.errors import ERROR_EVENT, report_error
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
@@ -89,7 +93,9 @@ class Orchestrator:
         recall_hits: int = 4,
         consolidate: bool = True,
         prewarm: bool = True,
+        location: LocationConfig | None = None,
     ):
+        self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -339,6 +345,20 @@ class Orchestrator:
         async def diagnose(_payload: object) -> str:
             return explain_failure(self._last_failure)
 
+        async def weather(_payload: object) -> str:
+            return await describe_weather(self._location)
+
+        async def currency(payload: object) -> str:
+            amount, source, target = payload  # type: ignore[misc]
+            return await convert_currency(amount, source, target)
+
+        async def convert_units(payload: object) -> str:
+            value, source, target = payload  # type: ignore[misc]
+            return format_conversion(value, source, target)
+
+        async def calculate(payload: object) -> str:
+            return f"{format_number(float(payload))}."  # type: ignore[arg-type]
+
         async def status(_payload: object) -> str:
             # Asked from the registry, not hardcoded: a capability that needs
             # the network must not be listed as working without one.
@@ -363,6 +383,14 @@ class Orchestrator:
         self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
         self._router.register("timer", parse_timer_command, start_timer)
+        # Currency before units: both say "convert X to Y", and only the
+        # currency matcher knows a rupee is not a unit of length.
+        self._router.register(
+            "weather", lambda t: True if is_weather_query(t) else None, weather, offline=False
+        )
+        self._router.register("currency", parse_currency_request, currency, offline=False)
+        self._router.register("convert", parse_conversion, convert_units)
+        self._router.register("calculate", parse_calculation, calculate)
 
     async def _remember_failure(self, event: Event) -> None:
         self._last_failure = {**event.payload, "at": event.timestamp}
@@ -556,6 +584,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         recall_hits=config.memory.recall_hits,
         consolidate=config.memory.consolidate,
         prewarm=config.memory.prewarm,
+        location=config.location,
     )
 
 
