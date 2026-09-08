@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import numpy as np
 
@@ -30,6 +31,7 @@ from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.files import look_up, parse_file_request
 from clio.capabilities.launch import open_target, resolve as resolve_target
 from clio.capabilities.network import describe_network, parse_network_request
+from clio.capabilities.notes import NoteBook, parse_note_request
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
@@ -110,6 +112,7 @@ class Orchestrator:
         location: LocationConfig | None = None,
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
+        notes_path: str | None = None,
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._shortcuts = shortcuts or {}
@@ -118,6 +121,7 @@ class Orchestrator:
         self._intent_used_llm = False
         self._stopwatch = Stopwatch()
         self._clipboard = Clipboard()
+        self._notes = NoteBook(notes_path or "memory/notes.md")
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -381,6 +385,23 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def notes(payload: object) -> str:
+            request = payload  # type: ignore[assignment]
+            if request.kind == "read":
+                return self._notes.recent()
+            content = request.content
+            if not content:
+                # "Note that down" on its own means the thing she just said -
+                # which is nearly always why he wants it written down.
+                content = next(
+                    (m["content"] for m in reversed(self._memory.get_messages())
+                     if m["role"] == "assistant"),
+                    "",
+                )
+                if not content:
+                    return "Note what down? Nothing's been said yet."
+            return self._notes.add(content)
+
         async def clipboard(payload: object) -> str:
             request = payload  # type: ignore[assignment]
             if request.kind == "read":
@@ -507,6 +528,8 @@ class Orchestrator:
         self._router.register("voice", parse_voice_request, voice)
         self._router.register("chance", parse_chance_request, chance)
         self._router.register("clipboard", parse_clipboard_request, clipboard)
+        # Before files: "read my notes" is not a request to read a file called notes.
+        self._router.register("notes", parse_note_request, notes)
         # Currency before units: both say "convert X to Y", and only the
         # currency matcher knows a rupee is not a unit of length.
         self._router.register(
@@ -733,6 +756,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         location=config.location,
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
+        notes_path=str(Path(config.memory.root) / "notes.md"),
     )
 
 

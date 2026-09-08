@@ -275,9 +275,16 @@
     - Long clipboards are described rather than recited - "400 words, starting..." - because reading a page aloud is unusable.
     - Second intent to reach the model, after `files`, and it declares the call the same way.
 
-  - [ ] **3.8** Quick capture - "note this down", into a findable plain-text store
+  - [x] **3.8** Quick capture - `notes.py`. Appends to `memory/notes.md`: plain markdown, one heading per day, and nothing else.
+    - **Findable is the whole requirement, so the format is a text file and not a row in the index.** He can open it, edit it, reorder it or delete half of it with no Clio running at all. It also lands inside Documents, so 3.6's file search finds notes without being told they exist.
+    - **Deliberately not `facts.md`.** That holds what the model distilled about him and what he corrected her on; this holds what he dictated, in his words, unchanged. Sharing a file would mean a consolidation pass could one day rewrite a note he asked for verbatim.
+    - **Append-only, so nothing can be rewritten or lost.** A crash mid-write costs the newest line and nothing before it. Nothing here deletes - pruning is what a text editor is for, and this is the first capability that writes a file, so being unable to destroy anything is the point.
+    - **"Note that down" on its own captures her last reply**, which is nearly always why he wants it written down. With nothing said yet it asks rather than writing an empty line.
+    - Registered before `files`, because "read my notes" is not a request to search for a file called notes. Asserted through the real router.
+    - The spoken read-back drops the timestamps: they are in the file for when he reads it, and noise when he is asking what the notes say.
 
   *Verify:* Ten capabilities registered, each reachable by voice, destructive ones asking first.
+  **Twenty-five registered.** Two ask first (`power`, `close`), two need the network (`weather`, `currency`). Reachable by voice is proven for six of them in the 8 Sept session; the rest are asserted through the router but not yet spoken to.
 
   ---
 

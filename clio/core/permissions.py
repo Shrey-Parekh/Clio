@@ -69,6 +69,9 @@ _DEFAULT_RULES: dict[str, Permission] = {
     # doing it by hand, which would defeat the capability. What makes that safe
     # is that the previous contents are kept and "put it back" restores them.
     "clipboard": Permission.FREE,
+    # Append-only to a plain text file he owns. Nothing here overwrites or
+    # deletes, so there is nothing to undo and nothing to confirm.
+    "notes": Permission.FREE,
 }
 
 _AFFIRMATIVE = {
