@@ -25,6 +25,21 @@ FIXED = "The quick brown fox jumped over the lazy dog."
 
 
 class FakeLLM:
+    """Stands in for the cloud model. `local` is the machine's own, exactly as
+    FallbackLLMProvider exposes it."""
+
+    def __init__(self, with_local=True):
+        self.calls = 0
+        self.saw = ""
+        self.local = FakeLocal() if with_local else None
+
+    async def complete(self, messages, tier="default"):
+        self.calls += 1
+        self.saw = messages[-1]["content"]
+        return FIXED
+
+
+class FakeLocal:
     def __init__(self):
         self.calls = 0
         self.saw = ""
@@ -32,7 +47,7 @@ class FakeLLM:
     async def complete(self, messages, tier="default"):
         self.calls += 1
         self.saw = messages[-1]["content"]
-        return FIXED
+        return "AKIA_REDACTED_BY_LOCAL"
 
 
 async def main():
@@ -73,9 +88,12 @@ async def main():
 
         clipboard = Clipboard()
         write_text("AKIAIOSFODNN7EXAMPLE")
-        text, refusal = clipboard.take()
-        assert text == "" and "not sending it anywhere" in refusal, refusal
-        print(f"OK  a key on the clipboard is refused, not summarised: {refusal[:52]}...")
+        text, refusal, sensitive = clipboard.take()
+        assert text and not refusal and sensitive, "a key is transformable, but not by the cloud"
+        write_text(SLOPPY)
+        _, _, sensitive = clipboard.take()
+        assert not sensitive, "ordinary prose must not be forced onto the local model"
+        print("OK  a key is flagged as local-only rather than refused")
 
         # --- long clipboards are described, not recited ---
 
@@ -112,6 +130,27 @@ async def main():
         spoken, _ = await orchestrator._handle_utterance("put it back")
         assert "nothing to put back" in spoken, spoken
         print("OK  undo restores exactly what was replaced, once")
+
+        # --- a key is transformed, but never by the cloud model ---
+
+        write_text("AKIAIOSFODNN7EXAMPLE")
+        cloud_before = llm.calls
+        spoken, _ = await orchestrator._handle_utterance("shorten what i copied")
+        assert llm.calls == cloud_before, "a key must never reach the cloud model"
+        assert llm.local.calls == 1 and "AKIAIOSFODNN7EXAMPLE" in llm.local.saw
+        assert "locally" in spoken, spoken
+        print(f"OK  the key went to the local model, and she said so: {spoken[-44:]!r}")
+
+        # With no local model there is nowhere safe to send it, so it stops.
+        stranded = FakeLLM(with_local=False)
+        alone = Orchestrator(
+            wake_detector=None, turn_detector=None, stt=None, llm=stranded, speaker=None,
+            persona_system_prompt="p", follow_up_window_s=1.0,
+        )
+        alone._memory = ConversationMemory(provider=stranded, system_prompt="p")
+        spoken, _ = await alone._handle_utterance("shorten what i copied")
+        assert stranded.calls == 0 and "no local model" in spoken, spoken
+        print("OK  no local model means it stops rather than falling back to the cloud")
 
         # --- an empty clipboard says so rather than sending nothing ---
 

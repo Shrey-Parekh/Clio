@@ -13,9 +13,11 @@ Two things it will not do:
 
 - Reading is local and stays local. Only a transform sends anything anywhere,
   because only a transform needs a model.
-- It refuses to send something that looks like a credential. A clipboard is
-  where passwords and API keys live in transit, and "summarise what I copied"
-  said while a key is on the clipboard should not put that key in a prompt.
+- It never sends a credential to the cloud. A clipboard is where passwords and
+  API keys live in transit, so anything that looks like one is routed to the
+  local model instead - which is the whole point of having one. Nothing is
+  refused; it just does not leave the machine. If there is no local model to
+  hand, it stops rather than falling back to the cloud.
 
 The instruction is passed through verbatim rather than matched against a list
 of supported transforms. "Make it less passive aggressive" is not something
@@ -187,16 +189,14 @@ class Clipboard:
         self._previous = None
         return "Put it back."
 
-    def take(self) -> tuple[str, str]:
-        """The text to transform, or the reason not to. Exactly one is set."""
+    def take(self) -> tuple[str, str, bool]:
+        """The text to transform, the reason not to, and whether it must stay
+        on this machine. Exactly one of the first two is set.
+        """
         text = read_text()
         if not text or not text.strip():
-            return "", "There's nothing on your clipboard - or it's not text."
-        if looks_like_a_secret(text):
-            log.warning("Refused to send clipboard contents that look like a credential")
-            return "", ("That looks like a password or a key, so I'm not sending it anywhere. "
-                        "Copy something else and ask again.")
-        return text[:_MAX_TRANSFORM_CHARS], ""
+            return "", "There's nothing on your clipboard - or it's not text.", False
+        return text[:_MAX_TRANSFORM_CHARS], "", looks_like_a_secret(text)
 
     def replace(self, original: str, result: str) -> str:
         if not write_text(result):

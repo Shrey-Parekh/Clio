@@ -327,6 +327,17 @@ class FallbackLLMProvider(LLMProvider):
         self.using_fallback: bool | None = None
 
     @property
+    def local(self) -> LLMProvider:
+        """The model that runs on this machine, addressable directly.
+
+        Needed because `using_fallback` records what answered *last*, not where
+        the next call will go - every call tries the cloud first. Anything that
+        must not leave the machine has to ask for this explicitly rather than
+        infer it.
+        """
+        return self._fallback
+
+    @property
     def usage(self) -> UsageTracker:
         """Whichever model is answering owns the numbers."""
         source = self._fallback if self.using_fallback else self._primary

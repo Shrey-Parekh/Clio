@@ -388,11 +388,24 @@ class Orchestrator:
             if request.kind == "restore":
                 return self._clipboard.restore()
 
-            original, refusal = self._clipboard.take()
+            original, refusal, sensitive = self._clipboard.take()
             if refusal:
                 return refusal
+
+            # A key or a password is done on this machine or not at all. The
+            # local model is asked for by name rather than inferred from
+            # `using_fallback`, which only records what answered last - every
+            # call tries the cloud first, so inferring would send it anyway.
+            provider = self._llm
+            if sensitive:
+                provider = getattr(self._llm, "local", None)
+                if provider is None:
+                    return ("That looks like a password or a key, and I've got no local model "
+                            "to do it with, so I'm not sending it anywhere.")
+                log.info("Clipboard transform kept local", extra={"extra_fields": {"reason": "secret"}})
+
             self._intent_used_llm = True
-            result = await self._llm.complete(
+            result = await provider.complete(
                 [
                     {"role": "system", "content":
                         "You rewrite text. Return only the rewritten text - no preamble, no "
@@ -403,7 +416,10 @@ class Orchestrator:
                 ],
                 tier="default",
             )
-            return self._clipboard.replace(original, result.strip())
+            spoken = self._clipboard.replace(original, result.strip())
+            # Said out loud, because "which model saw my API key" is not a
+            # question he should have to go and read a log to answer.
+            return f"{spoken} Did that one locally, it looked like a key." if sensitive else spoken
 
         async def clock(payload: object) -> str:
             kind, value = payload  # type: ignore[misc]
