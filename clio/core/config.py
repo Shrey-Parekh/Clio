@@ -147,6 +147,10 @@ class Config:
     persona: PersonaConfig
     memory: MemoryConfig
     location: LocationConfig
+    # Name -> path or URL, straight from TOML. A plain mapping, because a
+    # dataclass around "whatever he decided to name his own things" would only
+    # be a second place to edit every time he adds one.
+    shortcuts: dict[str, str]
     runtime: RuntimeConfig
 
     @staticmethod
@@ -280,6 +284,8 @@ def load_config(root: Path | None = None) -> Config:
             latitude=float(_env_override("CLIO_LATITUDE", str(location_raw.get("latitude", 0.0)))),
             longitude=float(_env_override("CLIO_LONGITUDE", str(location_raw.get("longitude", 0.0)))),
         )
+        # Same reason as [location]: optional, so a config predating it starts.
+        shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
             core_port=int(_env_override("CLIO_CORE_PORT", str(raw["runtime"]["core_port"]))),
@@ -297,6 +303,7 @@ def load_config(root: Path | None = None) -> Config:
         persona=persona,
         memory=memory,
         location=location,
+        shortcuts=shortcuts,
         runtime=runtime,
     )
     _validate(config)

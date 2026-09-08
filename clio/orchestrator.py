@@ -18,6 +18,7 @@ from clio.capabilities.convert import format_conversion, parse_conversion
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.currency import convert_currency, parse_currency_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
+from clio.capabilities.launch import open_target, resolve as resolve_target
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
@@ -95,8 +96,10 @@ class Orchestrator:
         consolidate: bool = True,
         prewarm: bool = True,
         location: LocationConfig | None = None,
+        shortcuts: dict[str, str] | None = None,
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
+        self._shortcuts = shortcuts or {}
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -357,6 +360,9 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def open_thing(payload: object) -> str:
+            return open_target(payload)  # type: ignore[arg-type]
+
         async def system(payload: object) -> str:
             return await describe_system(str(payload))
 
@@ -396,6 +402,11 @@ class Orchestrator:
         self._router.register("system", parse_system_query, system)
         self._router.register("convert", parse_conversion, convert_units)
         self._router.register("calculate", parse_calculation, calculate)
+        # Last: its verbs are the broadest here, so every narrower matcher -
+        # "start a timer" above all - gets the utterance first.
+        self._router.register(
+            "open", lambda t: resolve_target(t, self._shortcuts), open_thing
+        )
 
     async def _remember_failure(self, event: Event) -> None:
         self._last_failure = {**event.payload, "at": event.timestamp}
@@ -590,6 +601,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         consolidate=config.memory.consolidate,
         prewarm=config.memory.prewarm,
         location=config.location,
+        shortcuts=config.shortcuts,
     )
 
 

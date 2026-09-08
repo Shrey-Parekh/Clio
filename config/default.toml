@@ -143,6 +143,14 @@ name = ""                 # spoken aloud: "It's 21 degrees in Mumbai"
 latitude = 0.0
 longitude = 0.0
 
+[shortcuts]
+# Things to open by a name you choose, checked before the Start Menu. The value
+# is a path or a URL; the key is what you'd actually say out loud. Anything
+# already installed is found by its Start Menu name without being listed here,
+# so this is only for projects, folders and sites.
+# clio = "C:/Users/Shrey/Documents/Clio"
+# the roadmap = "C:/Users/Shrey/Documents/Clio/ROADMAP.md"
+
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
 core_port = 8765

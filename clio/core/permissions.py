@@ -38,6 +38,11 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "currency": Permission.FREE,
     "weather": Permission.FREE,
     "system": Permission.FREE,
+    # Opening something is reversible - he closes the window - and it only ever
+    # targets his own Start Menu or his own shortcuts, never a path spoken into
+    # the request. Confirming every launch would make it worse than the Start
+    # Menu it replaces.
+    "open": Permission.FREE,
 }
 
 _AFFIRMATIVE = {
