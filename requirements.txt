@@ -26,3 +26,8 @@ openwakeword==0.6.0
 
 # Phase 1.7 - tool calling schema validation
 jsonschema==4.26.0
+
+# Phase 3.3 - system monitoring. RAM percentage and per-process CPU have no
+# stdlib equivalent on Windows; the alternative is parsing WMI/typeperf text
+# output, which is more code and locale-dependent. GPU comes from nvidia-smi.
+psutil==7.1.3

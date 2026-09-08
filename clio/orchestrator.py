@@ -21,6 +21,7 @@ from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
+from clio.capabilities.system import describe_system, parse_system_query
 from clio.capabilities.timer import TimerCapability, parse_timer_command
 from clio.capabilities.weather import describe_weather, is_weather_query
 from clio.core.config import Config, ConfigError, LocationConfig
@@ -356,6 +357,9 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def system(payload: object) -> str:
+            return await describe_system(str(payload))
+
         async def calculate(payload: object) -> str:
             return f"{format_number(float(payload))}."  # type: ignore[arg-type]
 
@@ -389,6 +393,7 @@ class Orchestrator:
             "weather", lambda t: True if is_weather_query(t) else None, weather, offline=False
         )
         self._router.register("currency", parse_currency_request, currency, offline=False)
+        self._router.register("system", parse_system_query, system)
         self._router.register("convert", parse_conversion, convert_units)
         self._router.register("calculate", parse_calculation, calculate)
 

@@ -207,7 +207,14 @@
     - **Weather sends coordinates, which are the only genuinely personal thing any of these transmits, so it is opt-in.** `[location]` ships empty; until it is filled in she says she doesn't know where you are rather than inferring it from the IP address. Open-Meteo, also keyless.
     - Both network capabilities register `offline=False`, so 3.1's `status` stops claiming them during an outage - the reason that flag was built.
     - Verified live against both APIs, not only against the mocks in `tests/test_utilities.py`.
-  - [ ] **3.3** System monitoring - CPU, GPU, RAM, disk, temperatures, and what is eating resources
+  - [x] **3.3** System monitoring - `system.py`. One capability with seven topics rather than seven capabilities, because the matcher is the only thing that differs between them, and `status` is already the precedent.
+    - **`psutil` is the one new dependency, and it earns it.** Disk is stdlib (`shutil.disk_usage`), but memory pressure and per-process CPU have no stdlib equivalent on Windows: the alternative is shelling out to WMI or `typeperf` and parsing text that changes with the system locale - more code, slower, and wrong on a non-English machine.
+    - **It refuses to report a CPU temperature.** `psutil.sensors_temperatures` does not exist on Windows, and the WMI thermal zone is usually empty, needs admin, and often reports a chipset sensor rather than the die. Saying "I'd rather not guess at it" is worth more than a number that might be the wrong sensor. GPU temperature comes from `nvidia-smi`, which is already on this machine for CUDA, so that costs no dependency either.
+    - **The first live run called the System Idle Process the busiest thing on the machine.** The test passed - it was reading the printed output that caught it. Idle time is the machine doing nothing, so reporting it as the top consumer inverts the answer entirely. Excluded by name and pid.
+    - Per-process CPU is divided by core count, so "Chrome at 40 percent" is the same scale as the machine-wide number he just heard, rather than psutil's per-core figure that runs past 100.
+    - Everything blocks, so the snapshot runs on a thread - the loop it would otherwise stall is the one carrying the microphone. One 0.3s sampling window shared by every number, since psutil's first CPU reading is always zero.
+    - Matching is deliberately narrow around the neighbours: "how hot is it outside" is weather, not thermals, and both are in the standing check at `tests/test_system.py`. "system status" still routes to the connectivity answer, which is now arguably the wrong one - left alone rather than churned.
+    - **Ten capabilities registered, so the Phase 3 verify line is met on count.** Reachable by voice is not yet confirmed live.
   - [ ] **3.4** Opening things - launch apps, open files, folders, URLs and projects by natural name
   - [ ] **3.5** Window and system control - focus, minimise, arrange, volume, brightness, lock, sleep, monitor switching
   - [ ] **3.6** File system, read-only - list, search by name and by content, read, summarise. Write, move and delete route through 2.2 confirmation.

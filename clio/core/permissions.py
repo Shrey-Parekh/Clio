@@ -37,6 +37,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "convert": Permission.FREE,
     "currency": Permission.FREE,
     "weather": Permission.FREE,
+    "system": Permission.FREE,
 }
 
 _AFFIRMATIVE = {
