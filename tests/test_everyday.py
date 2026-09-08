@@ -10,6 +10,7 @@ Run: python tests/test_everyday.py
 import asyncio
 import random
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -104,6 +105,14 @@ async def main():
     timers.start(300)
     assert "5 minutes left" in timers.remaining()
     assert timers.cancel_all() == "Timer cancelled."
+    # From the live session: asked five seconds after a ten second timer went
+    # off, "There's no timer running" was true and useless. A timer that fired
+    # recently is what he is asking about.
+    timers._last_fired = (time.monotonic() - 5, 10.0)
+    assert "went off just now" in timers.remaining(), timers.remaining()
+    timers._last_fired = (time.monotonic() - 600, 10.0)
+    assert "no timer running" in timers.remaining()
+    timers._last_fired = None
     # Cancelling clears the deadline immediately, not whenever the loop next
     # gets round to running the cancelled task.
     assert "no timer running" in timers.remaining()

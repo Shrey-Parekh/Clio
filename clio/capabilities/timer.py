@@ -106,6 +106,9 @@ class TimerCapability:
         self._active: dict[str, asyncio.Task] = {}
         # Deadlines are monotonic, so "how long left" survives a clock change.
         self._deadlines: dict[str, float] = {}
+        # What last went off, so "how long is left" asked just after the alarm
+        # gets an answer about that timer rather than a flat denial.
+        self._last_fired: tuple[float, float] | None = None
 
     def cancel_all(self) -> str:
         """Cancelling the task is what stops the announcement - `_run` clears
@@ -124,8 +127,18 @@ class TimerCapability:
         log.info("Timers cancelled", extra={"extra_fields": {"count": count}})
         return "Timer cancelled." if count == 1 else f"All {count} timers cancelled."
 
+    # Long enough to cover "it just went off", short enough that an hour later
+    # the answer is simply that nothing is running.
+    _RECENT_S = 180.0
+
     def remaining(self) -> str:
         if not self._deadlines:
+            if self._last_fired is not None:
+                when, duration = self._last_fired
+                ago = time.monotonic() - when
+                if ago <= self._RECENT_S:
+                    when_said = "just now" if ago < 20 else f"{format_duration(ago)} ago"
+                    return f"That one's done - your {format_duration(duration)} timer went off {when_said}."
             return "There's no timer running."
         left = sorted(max(0.0, d - time.monotonic()) for d in self._deadlines.values())
         if len(left) == 1:
@@ -151,6 +164,7 @@ class TimerCapability:
                 "Timer fired",
                 extra={"extra_fields": {"timer_id": timer_id, "duration_s": duration_s}},
             )
+            self._last_fired = (time.monotonic(), duration_s)
             await self._announce(f"Your {format_duration(duration_s)} timer is up.")
         finally:
             self._active.pop(timer_id, None)

@@ -256,6 +256,14 @@
     - `tzdata` is the only new dependency: Windows ships no IANA time zone database, so `zoneinfo` has nothing to read without it. Pure data.
     - Verified live: the time here and in London, the wifi name, the local address, dice.
 
+  - **Live voice session, 8 Sept** - the first time anything since 1.13 went microphone-to-speaker. Startup 15s to listening, both models pre-warmed. Nine turns.
+    - **Everything routed correctly. The one failure was transcription, not matching.** "How much disk space is left" came back from Whisper as *"How much this space is left to place?"*, matched nothing, and cost an LLM call. Said again, it matched `system` instantly. That is the class of failure this session existed to find: the matchers are fine, the input to them is not.
+    - **"How long is left" was right and useless.** Asked five seconds after a ten second timer went off, "There's no timer running" was true. A timer that fired in the last three minutes is what he is actually asking about, so it now says so. The live case is in the standing check.
+    - **"Read me a poem" fell through to conversation as designed - and built the 46,093-file index to do it**, which is 3.6's declared ceiling, observed. About a second of blocked loop before the sentence was even handed to the model.
+    - `clock`, `system` (twice), `timer`, `timer_control` and `stop` all matched with no API call. "Open up about your feelings" went to conversation, correctly.
+    - **Not tested, and still the most important gap: the CONFIRM tier.** "Go to sleep" was never asked, so nothing has yet confirmed out loud. Also untested by voice: chance, network, help, voice speed, media, per-app volume, open, files, close.
+    - One `input overflow` at startup, same as previous runs, still unexplained.
+
   - [ ] **3.7** Clipboard operations - read, transform, replace. "Fix the grammar in what I just copied."
   - [ ] **3.8** Quick capture - "note this down", into a findable plain-text store
 
