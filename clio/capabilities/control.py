@@ -33,6 +33,12 @@ _user32 = ctypes.windll.user32
 
 _SW_RESTORE, _SW_MINIMIZE, _SW_MAXIMIZE = 9, 6, 3
 _VK_MENU, _VK_LWIN, _VK_D = 0x12, 0x5B, 0x44
+# The media keys a keyboard sends. Windows routes them to whatever is playing,
+# so this works for Spotify, a browser tab or a video player without knowing
+# which of them it is - far better than automating any one app's UI.
+_VK_MEDIA = {
+    "play_pause": 0xB3, "next_track": 0xB0, "previous_track": 0xB1, "stop_media": 0xB2,
+}
 _KEYUP = 0x0002
 
 
@@ -55,6 +61,10 @@ _CONTROL_PATTERNS: list[tuple[str, str]] = [
     ("brightness_set", r"(?:set|turn)?\s*(?:the\s+)?brightness\s+(?:to|at)\s+(?P<value>\d{1,3})"),
     ("brightness_up", r"brightness up|brighter|turn up the brightness"),
     ("brightness_down", r"brightness down|dimmer|dim the (?:screen|display)|turn down the brightness"),
+    # \b matters: without it "unmute spotify" matches the mute pattern,
+    # because "mute" is a substring of "unmute".
+    ("app_mute", r"\bmute (?P<value>[\w .-]+)"),
+    ("app_unmute", r"unmute (?P<value>[\w .-]+)"),
     ("minimise_all", r"minimi[sz]e everything|show (?:me )?the desktop|hide everything"),
     ("minimise", r"minimi[sz]e (?:the\s+|my\s+)?(?P<value>.+)"),
     ("maximise", r"maximi[sz]e (?:the\s+|my\s+)?(?P<value>.+)"),
@@ -63,6 +73,24 @@ _CONTROL_PATTERNS: list[tuple[str, str]] = [
     ("display_single", r"(?:just|only) (?:the\s+)?(?:main|primary) (?:screen|monitor|display)"),
     ("lock", r"^lock (?:the |my )?(?:screen|pc|computer|machine|workstation|it)$|^lock up$"),
     ("focus", r"(?:switch to|focus(?: on)?|go to) (?:the\s+|my\s+)?(?P<value>.+)"),
+]
+
+# Separate list, separate intent, because Windows routes these globally and
+# they must not be shadowed by the window patterns above - "pause" is not a
+# request to pause a window.
+_MEDIA_PATTERNS: list[tuple[str, str]] = [
+    ("play_pause", r"^(?:play|pause|resume|unpause)$|"
+                   r"(?:play|pause|resume) (?:the )?(?:music|song|track|video|it)"),
+    ("next_track", r"^(?:next|skip)$|next (?:song|track|one)|skip (?:this|the|it|song|track)"),
+    ("previous_track", r"^(?:previous|back)$|previous (?:song|track|one)|"
+                       r"(?:go |play )?(?:back|previous) (?:a )?(?:song|track)|play that again"),
+    ("stop_media", r"stop (?:the )?(?:music|song|track|playback|video)"),
+]
+
+# Closing can lose unsaved work, so it is its own intent and its own tier -
+# the same split as power against control.
+_CLOSE_PATTERNS: list[tuple[str, str]] = [
+    ("close", r"(?:close|quit|exit|kill) (?:the |my )?(?P<value>[\w .-]+?)(?: window| app)?$"),
 ]
 
 # Sleep only. Shutdown and restart are deliberately absent: the cost of a false
@@ -76,6 +104,8 @@ _POWER_PATTERNS: list[tuple[str, str]] = [
 
 _CONTROL = [(kind, re.compile(p)) for kind, p in _CONTROL_PATTERNS]
 _POWER = [(kind, re.compile(p)) for kind, p in _POWER_PATTERNS]
+_MEDIA = [(kind, re.compile(p)) for kind, p in _MEDIA_PATTERNS]
+_CLOSE = [(kind, re.compile(p)) for kind, p in _CLOSE_PATTERNS]
 
 _STRIP = re.compile(r"[.!?,;:]+$")
 
@@ -106,6 +136,20 @@ def parse_power(text: str) -> Action | None:
     return _match(_POWER, text)
 
 
+def parse_media(text: str) -> Action | None:
+    return _match(_MEDIA, text)
+
+
+def parse_close(text: str) -> Action | None:
+    """Only claims the request when a window with that name is actually open.
+    "Close the door" and "quit whining" are not requests to end a process.
+    """
+    action = _match(_CLOSE, text)
+    if action is None or _find_window(action.value) is None:
+        return None
+    return action
+
+
 def parse_control(text: str) -> Action | None:
     action = _match(_CONTROL, text)
     if action is None:
@@ -118,10 +162,12 @@ def parse_control(text: str) -> Action | None:
     return action
 
 
-def describe_action(action: Action) -> str:
+def describe_action(action: Action) -> str:  # noqa: D401
     """What the confirmation prompt says. Only reached for CONFIRM tiers, but
     written for every kind so a later tier change never produces "control.
     Should I go ahead?"."""
+    if action.kind == "close":
+        return f"Closing {action.value}"
     return _SPOKEN.get(action.kind, action.kind.replace("_", " "))
 
 
@@ -172,6 +218,58 @@ def _volume(action: Action) -> str:
     if volume.GetMute() and target > 0:
         volume.SetMute(0, None)
     return f"Volume {target} percent."
+
+
+def _app_volume(action: Action) -> str:
+    """Per-app, because the noisy thing is usually one app rather than the
+    machine. pycaw exposes a session per process, so this needs nothing beyond
+    what absolute volume already pulled in.
+    """
+    from pycaw.pycaw import AudioUtilities
+
+    query = action.value.strip().lower()
+    mute = action.kind == "app_mute"
+    touched = []
+    for session in AudioUtilities.GetAllSessions():
+        if session.Process is None or session.SimpleAudioVolume is None:
+            continue
+        name = session.Process.name()
+        if query in name.lower() or query in (session.DisplayName or "").lower():
+            session.SimpleAudioVolume.SetMute(1 if mute else 0, None)
+            touched.append(name.removesuffix(".exe"))
+
+    if not touched:
+        return f"Nothing called {action.value} is playing anything."
+    what = touched[0] if len(set(touched)) == 1 else f"{len(touched)} {touched[0]} windows"
+    return f"{'Muted' if mute else 'Unmuted'} {what}."
+
+
+def _media(action: Action) -> str:
+    """A keystroke, not an app integration. Windows routes the media keys to
+    whatever currently holds playback, so this works for Spotify, a browser tab
+    or a video player without knowing which one it is.
+    """
+    key = _VK_MEDIA[action.kind]
+    _user32.keybd_event(key, 0, 0, 0)
+    _user32.keybd_event(key, 0, _KEYUP, 0)
+    # Deliberately no claim about what happened: Windows gives no feedback, and
+    # "Playing" when nothing was open would be a lie.
+    return ""
+
+
+_WM_CLOSE = 0x0010
+
+
+def _close(action: Action) -> str:
+    """Asks the window to close, rather than terminating the process. WM_CLOSE
+    is what clicking the X sends, so the app still gets to prompt about unsaved
+    work - which is the entire reason this is CONFIRM rather than FREE.
+    """
+    handle = _find_window(action.value)
+    if handle is None:
+        return f"I can't see a window for {action.value}."
+    _user32.PostMessageW(handle, _WM_CLOSE, 0, 0)
+    return f"Closed {action.value}."
 
 
 # --- brightness -------------------------------------------------------------
@@ -294,6 +392,12 @@ def perform(action: Action) -> str:
     """
     if action.kind.startswith("volume") or action.kind in ("mute", "unmute"):
         return _volume(action)
+    if action.kind in ("app_mute", "app_unmute"):
+        return _app_volume(action)
+    if action.kind in _VK_MEDIA:
+        return _media(action)
+    if action.kind == "close":
+        return _close(action)
     if action.kind.startswith("brightness"):
         return _brightness(action)
     if action.kind == "minimise_all":

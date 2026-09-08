@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -62,6 +63,28 @@ def parse_timer_command(text: str) -> float | None:
     return seconds
 
 
+_CONTROL_PATTERNS: list[tuple[str, str]] = [
+    ("cancel", r"(?:cancel|stop|kill|clear|forget) (?:the |my |all )?timers?"),
+    ("remaining", r"how (?:long|much time) (?:is )?(?:left|remaining)(?: on the timer)?|"
+                  r"what(?:'?s| is) (?:left )?on the timer|check (?:the |my )?timers?|"
+                  r"(?:is|are) (?:the |my )?timers? (?:still )?(?:running|going)"),
+]
+
+_CONTROL = [(kind, re.compile(p)) for kind, p in _CONTROL_PATTERNS]
+
+
+def parse_timer_control(text: str) -> str | None:
+    """Cancelling and checking, kept separate from starting so the payload of
+    each stays what it is - a duration, or a command. Registered ahead of
+    `timer` so "cancel the five minute timer" is not read as a new one.
+    """
+    lowered = " ".join(text.strip().lower().split())
+    for kind, pattern in _CONTROL:
+        if pattern.search(lowered):
+            return kind
+    return None
+
+
 def format_duration(duration_s: float) -> str:
     total = int(round(duration_s))
     hours, remainder = divmod(total, 3600)
@@ -81,6 +104,34 @@ class TimerCapability:
     def __init__(self, announce: AnnounceFn):
         self._announce = announce
         self._active: dict[str, asyncio.Task] = {}
+        # Deadlines are monotonic, so "how long left" survives a clock change.
+        self._deadlines: dict[str, float] = {}
+
+    def cancel_all(self) -> str:
+        """Cancelling the task is what stops the announcement - `_run` clears
+        itself from `_active` in its own `finally`, so nothing is left behind
+        either way."""
+        if not self._active:
+            return "There's no timer running."
+        count = len(self._active)
+        for task in list(self._active.values()):
+            task.cancel()
+        self._active.clear()
+        # Cleared here as well as in `_run`'s finally: cancellation is not
+        # delivered until the loop next runs the task, and "how long left"
+        # asked in between must not answer from a timer that is already gone.
+        self._deadlines.clear()
+        log.info("Timers cancelled", extra={"extra_fields": {"count": count}})
+        return "Timer cancelled." if count == 1 else f"All {count} timers cancelled."
+
+    def remaining(self) -> str:
+        if not self._deadlines:
+            return "There's no timer running."
+        left = sorted(max(0.0, d - time.monotonic()) for d in self._deadlines.values())
+        if len(left) == 1:
+            return f"{format_duration(left[0])} left."
+        others = f", and {len(left) - 1} more after that" if len(left) > 1 else ""
+        return f"{format_duration(left[0])} left on the next one{others}."
 
     def start(self, duration_s: float) -> str:
         """Schedules the timer and returns the confirmation text to speak
@@ -90,6 +141,7 @@ class TimerCapability:
         timer_id = uuid.uuid4().hex[:8]
         task = asyncio.ensure_future(self._run(timer_id, duration_s))
         self._active[timer_id] = task
+        self._deadlines[timer_id] = time.monotonic() + duration_s
         return f"Okay, timer set for {format_duration(duration_s)}."
 
     async def _run(self, timer_id: str, duration_s: float) -> None:
@@ -102,3 +154,4 @@ class TimerCapability:
             await self._announce(f"Your {format_duration(duration_s)} timer is up.")
         finally:
             self._active.pop(timer_id, None)
+            self._deadlines.pop(timer_id, None)

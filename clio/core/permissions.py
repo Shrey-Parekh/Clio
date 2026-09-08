@@ -53,6 +53,18 @@ _DEFAULT_RULES: dict[str, Permission] = {
     # deleting are not built - when they are, they get their own intent and
     # their own tier, the way power is separate from control.
     "files": Permission.FREE,
+    # Answer-only or trivially reversible, all of them local.
+    "clock": Permission.FREE,
+    "chance": Permission.FREE,
+    "stopwatch": Permission.FREE,
+    "timer_control": Permission.FREE,
+    "network": Permission.FREE,
+    "media": Permission.FREE,
+    "help": Permission.FREE,
+    "voice": Permission.FREE,
+    # Closing a window can lose unsaved work, so it asks - the same reasoning
+    # that separates power from control.
+    "close": Permission.CONFIRM,
 }
 
 _AFFIRMATIVE = {

@@ -131,6 +131,16 @@ class KokoroSpeechEngine(SpeechEngine):
         self._bus = bus
         self._device = device
 
+    @property
+    def speed(self) -> float:
+        return self._speed
+
+    @speed.setter
+    def speed(self, value: float) -> None:
+        """Settable so "slow down" takes effect mid-conversation. Not
+        persisted - config/default.toml is his to edit, not hers."""
+        self._speed = value
+
     def _ensure_loaded(self):
         if self._kokoro is None:
             # The shipped model is fp16 built for GPU. Left to itself, ONNX Runtime

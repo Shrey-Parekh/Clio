@@ -13,19 +13,28 @@ from collections.abc import AsyncIterator
 
 import numpy as np
 
+from clio.capabilities.assistant import (
+    adjust_speed, describe_capabilities, parse_help_request, parse_voice_request,
+)
 from clio.capabilities.calculate import format_number, parse_calculation
+from clio.capabilities.chance import decide, parse_chance_request
+from clio.capabilities.clock import answer as clock_answer, parse_clock_request
+from clio.capabilities.control import (
+    apply as apply_control, describe_action, parse_close, parse_control, parse_media, parse_power,
+)
 from clio.capabilities.convert import format_conversion, parse_conversion
-from clio.capabilities.control import apply as apply_control, describe_action, parse_control, parse_power
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.currency import convert_currency, parse_currency_request
-from clio.capabilities.files import look_up, parse_file_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
+from clio.capabilities.files import look_up, parse_file_request
 from clio.capabilities.launch import open_target, resolve as resolve_target
+from clio.capabilities.network import describe_network, parse_network_request
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
+from clio.capabilities.stopwatch import Stopwatch, parse_stopwatch_command
 from clio.capabilities.system import describe_system, parse_system_query
-from clio.capabilities.timer import TimerCapability, parse_timer_command
+from clio.capabilities.timer import TimerCapability, parse_timer_command, parse_timer_control
 from clio.capabilities.weather import describe_weather, is_weather_query
 from clio.core.config import Config, ConfigError, LocationConfig
 from clio.core.errors import ERROR_EVENT, report_error
@@ -106,6 +115,7 @@ class Orchestrator:
         self._file_roots = tuple(file_roots or ())
         # Set per intent: an intent is deterministic unless it says otherwise.
         self._intent_used_llm = False
+        self._stopwatch = Stopwatch()
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -244,9 +254,12 @@ class Orchestrator:
                 },
             )
 
-            if reply_text is None:
+            if not reply_text:
                 # A stop command: say nothing, don't restart the follow-up-window
                 # clock through speech that doesn't happen - just keep listening.
+                # Empty counts as silent as well as None: locking, sleeping and
+                # the media keys have nothing worth saying, and speaking an
+                # empty string is still a turn with real latency.
                 next_turn = await self._listen_silently()
             else:
                 session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
@@ -366,6 +379,29 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def clock(payload: object) -> str:
+            kind, value = payload  # type: ignore[misc]
+            return clock_answer(kind, value)
+
+        async def chance(payload: object) -> str:
+            kind, args = payload  # type: ignore[misc]
+            return decide(kind, args)
+
+        async def stopwatch(payload: object) -> str:
+            return self._stopwatch.handle(str(payload))
+
+        async def timer_control(payload: object) -> str:
+            return self._timers.cancel_all() if payload == "cancel" else self._timers.remaining()
+
+        async def network(payload: object) -> str:
+            return await describe_network(str(payload))
+
+        async def help_me(_payload: object) -> str:
+            return describe_capabilities(self._router.capabilities())
+
+        async def voice(payload: object) -> str:
+            return adjust_speed(self._speaker, str(payload))
+
         async def files(payload: object) -> str:
             spoken, to_summarise = await look_up(payload, self._file_roots)  # type: ignore[arg-type]
             if not to_summarise:
@@ -418,7 +454,16 @@ class Orchestrator:
         self._router.register("diagnose", lambda t: True if is_diagnosis_query(t) else None, diagnose)
         self._router.register("status", lambda t: True if is_status_query(t) else None, status)
         self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
+        # Control before start, so "cancel the five minute timer" is not
+        # heard as a request for a new one.
+        self._router.register("timer_control", parse_timer_control, timer_control)
         self._router.register("timer", parse_timer_command, start_timer)
+        self._router.register("stopwatch", parse_stopwatch_command, stopwatch)
+        self._router.register("clock", parse_clock_request, clock)
+        self._router.register("network", parse_network_request, network)
+        self._router.register("help", parse_help_request, help_me)
+        self._router.register("voice", parse_voice_request, voice)
+        self._router.register("chance", parse_chance_request, chance)
         # Currency before units: both say "convert X to Y", and only the
         # currency matcher knows a rupee is not a unit of length.
         self._router.register(
@@ -429,6 +474,10 @@ class Orchestrator:
         # Two intents over one module, because they are not the same risk: the
         # describer is what the confirmation actually reads out.
         self._router.register("power", parse_power, control, describe=describe_action)
+        self._router.register("close", parse_close, control, describe=describe_action)
+        # Media before control: "stop the music" must not be read as a window
+        # command, and "pause" must not be read as anything else at all.
+        self._router.register("media", parse_media, control)
         self._router.register("control", parse_control, control, describe=describe_action)
         self._router.register(
             "files", lambda t: parse_file_request(t, self._file_roots), files
