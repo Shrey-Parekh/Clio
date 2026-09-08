@@ -135,6 +135,12 @@ async def main():
     said = describe_capabilities(orchestrator._router.capabilities())
     assert said.startswith("I can tell you the time"), said
     assert "set timers" in said and "other things" in said
+    # Every registered capability is either named or counted - a capability
+    # that exists but cannot be discovered is one he will never use.
+    from clio.capabilities.assistant import _DESCRIPTIONS, _UNLISTED
+    undescribed = [c.name for c in orchestrator._router.capabilities()
+                   if c.name not in _DESCRIPTIONS and c.name not in _UNLISTED]
+    assert not undescribed, f"registered but unnameable: {undescribed}"
     # Spoken, so it must not become a manual read aloud.
     assert len(said) < 320, f"too long to listen to ({len(said)} chars)"
     assert "stop" not in said.split(), "the stop command is not something to advertise"

@@ -48,6 +48,8 @@ _DESCRIPTIONS = {
     "close": "close things",
     "open": "open apps and folders",
     "files": "find and summarise your files",
+    "notes": "take notes",
+    "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
     "status": "tell you what's still working when something breaks",
     "diagnose": "explain what went wrong",
@@ -62,10 +64,10 @@ _UNLISTED = {"stop", "repeat", "help"}
 # Only the headline of each group, because the persona rule about not reading
 # lists aloud applies hardest to the answer about what she can do.
 _HEADLINE = [
-    "clock", "timer", "open", "files", "control", "media", "system",
-    "weather", "calculate", "chance",
+    "clock", "timer", "notes", "open", "files", "clipboard", "control", "system",
+    "media", "weather", "calculate", "chance",
 ]
-_MAX_SPOKEN = 7
+_MAX_SPOKEN = 8
 
 _MIN_SPEED, _MAX_SPEED, _SPEED_STEP = 0.7, 1.5, 0.15
 

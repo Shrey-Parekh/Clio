@@ -23,9 +23,10 @@ _WORD_COUNTS = {"a": 1, "an": 1, "two": 2, "three": 3}
 _MAX_DICE = 10
 _MAX_SIDES = 100
 
-# "pick between the red one and the blue one" splits on these. Anything that
-# does not split into at least two options is not a request to choose.
-_SPLIT = re.compile(r"\s+or\s+|\s*,\s*")
+# "pick between tea and coffee" splits on these - "and" included, because it
+# is how the choice is usually said out loud. Anything that does not split
+# into at least two options is not a request to choose.
+_SPLIT = re.compile(r"\s+or\s+|\s+and\s+|\s*,\s*")
 
 
 def parse_chance_request(text: str) -> tuple[str, tuple] | None:

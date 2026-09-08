@@ -69,7 +69,7 @@ async def main():
 
     o2._confirm = refuse
     await o2._handle_utterance("danger")
-    assert ran == [] and o2._last_match is None
+    assert ran == [] and o2._last_plan == []
     reply, _ = await o2._handle_utterance("do that again")
     assert "haven't asked me" in reply, reply
     print("OK  a declined action is not remembered, so 'again' cannot rerun it")

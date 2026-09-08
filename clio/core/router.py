@@ -21,6 +21,7 @@ policy assigns rather than the capability itself.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -68,6 +69,15 @@ class Match:
         return await self._handler(self._payload)
 
 
+# Only what someone actually says to join two commands. Capped low: a spoken
+# chain of five things is a sentence he would not say and could not follow the
+# answer to.
+_CONNECTOR = re.compile(
+    r"\s+and then\s+|\s+then\s+|\s+and also\s+|\s+and\s+|\s*[;,]\s*", re.IGNORECASE
+)
+_MAX_STEPS = 4
+
+
 class IntentRouter:
     def __init__(self, policy: PermissionPolicy | None = None) -> None:
         self._intents: list[Intent] = []
@@ -108,6 +118,37 @@ class IntentRouter:
             Capability(name=i.name, permission=self._policy.tier(i.name), offline=i.offline)
             for i in self._intents
         ]
+
+    def plan(self, text: str) -> list[Match]:
+        """The steps to run, in the order he said them.
+
+        "Mute Chrome and lock the screen" is two actions, and answering only
+        the first is the fire-and-forget failure 2.7 exists to prevent.
+
+        The comma matters as much as the "and": without it, "alpha, beta and
+        gamma" split into two parts, and the part reading "alpha, beta"
+        matched alpha alone - silently dropping a command, which is the exact
+        failure this is here to prevent.
+
+        Splitting on "and" is dangerous on its own - "pick between tea and
+        coffee" is one request, "find and summarise" is one verb phrase. What
+        makes it safe is that a split is only accepted when *every* part
+        matches an intent by itself. Anything less falls back to treating the
+        whole sentence as one request, which is what it was before this
+        existed, so a bad split cannot make things worse than not splitting.
+        """
+        parts = [p.strip() for p in _CONNECTOR.split(text) if p.strip()]
+        if 2 <= len(parts) <= _MAX_STEPS:
+            steps = [self.match(part) for part in parts]
+            if all(step is not None for step in steps):
+                log.info(
+                    "Planned a chain",
+                    extra={"extra_fields": {"steps": [s.intent for s in steps]}},  # type: ignore[union-attr]
+                )
+                return steps  # type: ignore[return-value]
+
+        single = self.match(text)
+        return [single] if single is not None else []
 
     def match(self, text: str) -> Match | None:
         """Returns None when nothing matches, meaning the caller should fall

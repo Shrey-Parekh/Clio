@@ -40,7 +40,7 @@ from clio.capabilities.system import describe_system, parse_system_query
 from clio.capabilities.timer import TimerCapability, parse_timer_command, parse_timer_control
 from clio.capabilities.weather import describe_weather, is_weather_query
 from clio.core.config import Config, ConfigError, LocationConfig
-from clio.core.errors import ERROR_EVENT, report_error
+from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
@@ -140,7 +140,10 @@ class Orchestrator:
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._woke_at: float | None = None
         self._announced_degraded = False
-        self._last_match: Match | None = None
+        # The last thing actually run, as steps: "again" after a chain has to
+        # repeat the chain, not just whichever part happened to come last.
+        self._last_plan: list[Match] = []
+        self._declined = False
         self._last_failure: dict | None = None
         if bus is not None:
             # Subscribed rather than recorded at each call site: every failure
@@ -318,6 +321,7 @@ class Orchestrator:
 
     async def _execute(self, matched: Match) -> str | None:
         """The permission gate. Nothing runs before its tier is checked."""
+        self._declined = False
         if matched.permission is Permission.BLOCKED:
             log.warning("Blocked action refused", extra={"extra_fields": {"intent": matched.intent}})
             return f"I can't do that one. {matched.description} is off limits."
@@ -325,13 +329,83 @@ class Orchestrator:
         if matched.permission is Permission.CONFIRM:
             if not await self._confirm(f"{matched.description}. Should I go ahead?"):
                 log.info("Action declined", extra={"extra_fields": {"intent": matched.intent}})
+                # Flagged rather than inferred from the wording, so a chain can
+                # stop on a refusal without string-matching its own reply.
+                self._declined = True
                 return "Left it alone."
 
-        # Remembered only once it has actually run, so "again" never repeats
-        # something that was refused or declined.
-        if matched.intent != "repeat":
-            self._last_match = matched
         return await matched.run()
+
+    async def _run_plan(self, steps: list[Match]) -> str | None:
+        """Runs the steps in order, and stops the moment one does not finish.
+
+        This is the whole of 2.7. A chain that keeps going after a step failed
+        leaves him with no idea which half of what he asked for actually
+        happened - so a failure or a refusal ends the chain, and the reply says
+        what ran before it and what did not run after.
+
+        Each step goes through the permission gate individually. A chain is not
+        a way to get a confirm-tier action past its confirmation.
+        """
+        said: list[str] = []
+        # Only what actually ran is remembered, so "again" can never re-run
+        # something he declined - the guarantee 2.6 established, kept intact
+        # now that a request can be several steps.
+        ran: list[Match] = []
+        for index, step in enumerate(steps, start=1):
+            if len(steps) > 1:
+                log.info(
+                    "Plan step",
+                    extra={"extra_fields": {
+                        "step": index, "of": len(steps), "intent": step.intent,
+                        "permission": step.permission.value,
+                    }},
+                )
+            try:
+                reply = await self._execute(step)
+            except Exception as exc:
+                await report_error(
+                    self._bus, exc, context=f"step {index}, {step.description}",
+                    source="clio.orchestrator",
+                )
+                self._remember(steps, ran)
+                if len(steps) == 1:
+                    raise
+                return self._stopped_short(said, steps, index, describe_error(exc).spoken)
+
+            if self._declined:
+                self._remember(steps, ran)
+                if len(steps) == 1:
+                    return reply
+                return self._stopped_short(said, steps, index, "You said no.")
+
+            ran.append(step)
+            if reply:
+                said.append(reply)
+
+        self._remember(steps, ran)
+        return " ".join(said) if said else (reply if len(steps) == 1 else "")
+
+    def _remember(self, steps: list[Match], ran: list[Match]) -> None:
+        """A repeat is not itself a thing to repeat, and neither is a step that
+        never happened. Nothing is recorded when nothing ran, so the previous
+        request stays repeatable."""
+        if ran and steps[0].intent != "repeat":
+            self._last_plan = ran
+
+    @staticmethod
+    def _stopped_short(said: list[str], steps: list[Match], index: int, why: str) -> str:
+        """What he needs to hear is the boundary: what is done, and what is not."""
+        done = " ".join(said)
+        remaining = len(steps) - index
+        # Counted rather than named: an intent's description is a fragment
+        # ("Locking the screen"), and "I haven't Locking the screen" is worse
+        # than saying how much is left.
+        tail = "" if remaining == 0 else (
+            " There's one more I haven't done." if remaining == 1
+            else f" There are {remaining} more I haven't done."
+        )
+        return f"{done} Stopped at {steps[index - 1].description}. {why}{tail}".strip()
 
     async def _confirm(self, prompt: str) -> bool:
         """Asks out loud and waits for an answer. Silence is a no, as is
@@ -364,12 +438,15 @@ class Orchestrator:
             return self._timers.start(float(payload))
 
         async def repeat(_payload: object) -> str | None:
-            if self._last_match is None:
+            if not self._last_plan:
                 return "You haven't asked me to do anything yet."
-            log.info("Repeating", extra={"extra_fields": {"intent": self._last_match.intent}})
+            log.info(
+                "Repeating",
+                extra={"extra_fields": {"steps": [m.intent for m in self._last_plan]}},
+            )
             # Back through the gate, not straight to run(): a confirm-tier action
             # must ask again every time, including when it is being repeated.
-            return await self._execute(self._last_match)
+            return await self._run_plan(self._last_plan)
 
         async def diagnose(_payload: object) -> str:
             return explain_failure(self._last_failure)
@@ -600,10 +677,10 @@ class Orchestrator:
         # answered like one - recording it must not swallow the reply.
         self._record_correction(text)
 
-        matched = self._router.match(text)
-        if matched is not None:
+        steps = self._router.plan(text)
+        if steps:
             self._intent_used_llm = False
-            spoken = await self._execute(matched)
+            spoken = await self._run_plan(steps)
             # Almost every intent is free, but summarising a file is not, and
             # reporting it as free would under-count the session and skip the
             # end-of-conversation consolidation.
