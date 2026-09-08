@@ -43,6 +43,12 @@ _DEFAULT_RULES: dict[str, Permission] = {
     # the request. Confirming every launch would make it worse than the Start
     # Menu it replaces.
     "open": Permission.FREE,
+    # Volume, windows, displays, locking - all undone in a second.
+    "control": Permission.FREE,
+    # The first CONFIRM in the codebase. Sleeping the machine ends whatever he
+    # was doing, and "go to sleep" is exactly the kind of thing said to an
+    # assistant meaning something else entirely.
+    "power": Permission.CONFIRM,
 }
 
 _AFFIRMATIVE = {

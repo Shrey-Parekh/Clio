@@ -222,7 +222,15 @@
     - Substring matching before fuzzy, shortest name winning: "chrome" is inside "google chrome" but only ~0.6 similar to it, and "word" should reach Microsoft Word rather than a longer accidental container.
     - The article is kept as well as stripped when matching shortcuts - stripping "the" off "open the roadmap" made a shortcut he'd named "the roadmap" unreachable. Caught by the check, not by reading it.
     - 210 Start Menu shortcuts indexed on this machine, cached for the process. Verified live: `open my downloads` opened Explorer.
-  - [ ] **3.5** Window and system control - focus, minimise, arrange, volume, brightness, lock, sleep, monitor switching
+  - [x] **3.5** Window and system control - `control.py`. Volume, window focus and minimise, display arrangement, locking, sleeping. `ctypes` straight to `user32` for windows and locking, `DisplaySwitch.exe` for monitors, both already on the machine.
+    - **One module, two intents, because they are not the same risk.** `control` is everything undone in a second and is FREE; `power` is sleeping the machine and is the **first CONFIRM-tier capability in the codebase**. The tier machinery from 2.2 has existed since Phase 2 and until now had nothing real behind it - "go to sleep" is exactly the sentence said to an assistant meaning something else entirely, so it asks. Declining is checked as hard as agreeing: `perform` is replaced in `tests/test_control.py`, so the check is what *would* have run.
+    - **This is also the first use of `Describer`**, which the ponytail audit had flagged as dead. The confirmation reads "Putting the machine to sleep. Should I go ahead?" rather than "power. Should I go ahead?" - the reason the field was there.
+    - **Shutdown and restart are deliberately absent.** The cost of a false positive is unsaved work, and neither is worth saying out loud rather than pressing.
+    - **`pycaw` is the second dependency this phase, and only absolute volume justifies it.** Windows' volume keys step by 2 percent and cannot read the current level, so "set the volume to 20" is unreachable through `keybd_event` - you can only nudge blindly. Everything else here is stdlib.
+    - **Brightness is refused on this machine, honestly.** `WmiMonitorBrightness` only exists for panels that expose it through the driver; an external monitor on a desktop returns nothing, so she says it's a button on the monitor rather than silently doing nothing. Same shape as the CPU temperature in 3.3.
+    - Focus taps alt before `SetForegroundWindow`, since Windows refuses the call from a process that did not last handle input - the difference between working and quietly failing.
+    - Acting on a window that isn't open falls through instead of being refused, so "switch to Spotify" can still reach 3.4 and open it.
+    - Verified live: volume read at 100, set to 60, stepped to 50, restored. Brightness refused. Nothing was locked or slept.
   - [ ] **3.6** File system, read-only - list, search by name and by content, read, summarise. Write, move and delete route through 2.2 confirmation.
   - [ ] **3.7** Clipboard operations - read, transform, replace. "Fix the grammar in what I just copied."
   - [ ] **3.8** Quick capture - "note this down", into a findable plain-text store

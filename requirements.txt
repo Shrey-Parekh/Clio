@@ -31,3 +31,8 @@ jsonschema==4.26.0
 # stdlib equivalent on Windows; the alternative is parsing WMI/typeperf text
 # output, which is more code and locale-dependent. GPU comes from nvidia-smi.
 psutil==7.1.3
+
+# Phase 3.5 - absolute volume. Windows' volume keys only step by 2 percent and
+# cannot read the current level, so "set the volume to 20" is not reachable
+# through keybd_event. pycaw is the thin wrapper over IAudioEndpointVolume.
+pycaw==20240210

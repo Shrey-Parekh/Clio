@@ -15,6 +15,7 @@ import numpy as np
 
 from clio.capabilities.calculate import format_number, parse_calculation
 from clio.capabilities.convert import format_conversion, parse_conversion
+from clio.capabilities.control import apply as apply_control, describe_action, parse_control, parse_power
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.currency import convert_currency, parse_currency_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
@@ -360,6 +361,9 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def control(payload: object) -> str:
+            return await apply_control(payload)  # type: ignore[arg-type]
+
         async def open_thing(payload: object) -> str:
             return open_target(payload)  # type: ignore[arg-type]
 
@@ -400,6 +404,10 @@ class Orchestrator:
         )
         self._router.register("currency", parse_currency_request, currency, offline=False)
         self._router.register("system", parse_system_query, system)
+        # Two intents over one module, because they are not the same risk: the
+        # describer is what the confirmation actually reads out.
+        self._router.register("power", parse_power, control, describe=describe_action)
+        self._router.register("control", parse_control, control, describe=describe_action)
         self._router.register("convert", parse_conversion, convert_units)
         self._router.register("calculate", parse_calculation, calculate)
         # Last: its verbs are the broadest here, so every narrower matcher -
