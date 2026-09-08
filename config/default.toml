@@ -143,6 +143,17 @@ name = ""                 # spoken aloud: "It's 21 degrees in Mumbai"
 latitude = 0.0
 longitude = 0.0
 
+[files]
+# The only folders she may look inside - listing, finding, searching and
+# reading, never writing. Empty means she says she has nowhere to look rather
+# than falling back to your whole user profile. Environment variables and ~
+# both expand.
+roots = [
+    "~/Documents",
+    "~/Downloads",
+    "~/Desktop",
+]
+
 [shortcuts]
 # Things to open by a name you choose, checked before the Start Menu. The value
 # is a path or a URL; the key is what you'd actually say out loud. Anything

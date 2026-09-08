@@ -231,7 +231,15 @@
     - Focus taps alt before `SetForegroundWindow`, since Windows refuses the call from a process that did not last handle input - the difference between working and quietly failing.
     - Acting on a window that isn't open falls through instead of being refused, so "switch to Spotify" can still reach 3.4 and open it.
     - Verified live: volume read at 100, set to 60, stepped to 50, restored. Brightness refused. Nothing was locked or slept.
-  - [ ] **3.6** File system, read-only - list, search by name and by content, read, summarise. Write, move and delete route through 2.2 confirmation.
+  - [x] **3.6** File system, read-only - `files.py`. List, find by name, search by content, read aloud, summarise. **Write, move and delete are not built**: the task is read-only, and when writing arrives it gets its own intent and its own tier, the way `power` is separate from `control` in 3.5.
+    - **Bounded to configured roots, and empty is not "everywhere".** `[files] roots` ships as Documents, Downloads and Desktop. With none configured she says she has nowhere to look rather than falling back to the whole user profile.
+    - **A path spoken into the request is never resolved** - the same rule as launching, and for the same reason. "Read C colon backslash..." does not reach the disk.
+    - **The name is resolved in the matcher, not the handler, and that is the whole design.** "Read me a poem" must fall through to conversation, and the only way to know it is not a filename is to look. 3.4 hit this exact trap and 3.6 would have repeated it: the first version answered "I can't find anything called a poem".
+    - Index cached for 60 seconds, ~46,000 paths on this machine. **Ceiling worth knowing: the first file request blocks the loop for about a second while it builds.** Marked `ponytail:` in the module. Pre-warming it alongside STT and TTS is the fix if it is ever felt.
+    - Content search runs to a 4-second deadline and then says how many files it actually got through, rather than implying it read everything. Binaries are found by name but never opened.
+    - **Nothing speaks a path.** Results are "ROADMAP, in Clio" - the folder is what he needs to hear, and a full path read aloud is unusable.
+    - **Summarising is the first intent that calls the model, and it forced a real fix.** `_handle_utterance` hardcoded `used_llm=False` for every routed intent, which was true until now. Left alone it would have under-counted the session's tokens and skipped end-of-conversation consolidation. The intent now declares it, and the check asserts both directions.
+    - Verified live against the real roots: `find the roadmap` in 0.95s cold, `which files mention kokoro` found PROJECT_BRIEF, requirements and ROADMAP.
   - [ ] **3.7** Clipboard operations - read, transform, replace. "Fix the grammar in what I just copied."
   - [ ] **3.8** Quick capture - "note this down", into a findable plain-text store
 

@@ -151,6 +151,9 @@ class Config:
     # dataclass around "whatever he decided to name his own things" would only
     # be a second place to edit every time he adds one.
     shortcuts: dict[str, str]
+    # The only folders she may look inside. Empty means she says she has
+    # nowhere to look, rather than defaulting to the whole user profile.
+    file_roots: tuple[Path, ...]
     runtime: RuntimeConfig
 
     @staticmethod
@@ -286,6 +289,10 @@ def load_config(root: Path | None = None) -> Config:
         )
         # Same reason as [location]: optional, so a config predating it starts.
         shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
+        file_roots = tuple(
+            Path(os.path.expandvars(str(r))).expanduser()
+            for r in raw.get("files", {}).get("roots", [])
+        )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
             core_port=int(_env_override("CLIO_CORE_PORT", str(raw["runtime"]["core_port"]))),
@@ -304,6 +311,7 @@ def load_config(root: Path | None = None) -> Config:
         memory=memory,
         location=location,
         shortcuts=shortcuts,
+        file_roots=file_roots,
         runtime=runtime,
     )
     _validate(config)

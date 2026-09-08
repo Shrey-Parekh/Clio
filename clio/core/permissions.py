@@ -49,6 +49,10 @@ _DEFAULT_RULES: dict[str, Permission] = {
     # was doing, and "go to sleep" is exactly the kind of thing said to an
     # assistant meaning something else entirely.
     "power": Permission.CONFIRM,
+    # Read-only, and confined to the folders he listed. Writing, moving and
+    # deleting are not built - when they are, they get their own intent and
+    # their own tier, the way power is separate from control.
+    "files": Permission.FREE,
 }
 
 _AFFIRMATIVE = {

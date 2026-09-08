@@ -18,6 +18,7 @@ from clio.capabilities.convert import format_conversion, parse_conversion
 from clio.capabilities.control import apply as apply_control, describe_action, parse_control, parse_power
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.currency import convert_currency, parse_currency_request
+from clio.capabilities.files import look_up, parse_file_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.launch import open_target, resolve as resolve_target
 from clio.capabilities.repeat import is_repeat_command
@@ -98,9 +99,13 @@ class Orchestrator:
         prewarm: bool = True,
         location: LocationConfig | None = None,
         shortcuts: dict[str, str] | None = None,
+        file_roots: tuple = (),
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._shortcuts = shortcuts or {}
+        self._file_roots = tuple(file_roots or ())
+        # Set per intent: an intent is deterministic unless it says otherwise.
+        self._intent_used_llm = False
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -361,6 +366,23 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def files(payload: object) -> str:
+            spoken, to_summarise = await look_up(payload, self._file_roots)  # type: ignore[arg-type]
+            if not to_summarise:
+                return spoken
+            # The only capability that reaches the model, and it says so, so
+            # the turn is accounted for honestly rather than counted as free.
+            self._intent_used_llm = True
+            return await self._llm.complete(
+                [
+                    {"role": "system", "content": self._persona_system_prompt},
+                    {"role": "user", "content":
+                        "Say what this file is and what's in it, out loud, in three sentences "
+                        f"at most. No lists, no code, no file paths.\n\n{to_summarise}"},
+                ],
+                tier="default",
+            )
+
         async def control(payload: object) -> str:
             return await apply_control(payload)  # type: ignore[arg-type]
 
@@ -408,6 +430,9 @@ class Orchestrator:
         # describer is what the confirmation actually reads out.
         self._router.register("power", parse_power, control, describe=describe_action)
         self._router.register("control", parse_control, control, describe=describe_action)
+        self._router.register(
+            "files", lambda t: parse_file_request(t, self._file_roots), files
+        )
         self._router.register("convert", parse_conversion, convert_units)
         self._router.register("calculate", parse_calculation, calculate)
         # Last: its verbs are the broadest here, so every narrower matcher -
@@ -462,7 +487,12 @@ class Orchestrator:
 
         matched = self._router.match(text)
         if matched is not None:
-            return await self._execute(matched), False
+            self._intent_used_llm = False
+            spoken = await self._execute(matched)
+            # Almost every intent is free, but summarising a file is not, and
+            # reporting it as free would under-count the session and skip the
+            # end-of-conversation consolidation.
+            return spoken, self._intent_used_llm
 
         # Retrieval happens only on the LLM path - a deterministic command must
         # not touch the store's search or anything else that could cost time.
@@ -610,6 +640,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         prewarm=config.memory.prewarm,
         location=config.location,
         shortcuts=config.shortcuts,
+        file_roots=config.file_roots,
     )
 
 
