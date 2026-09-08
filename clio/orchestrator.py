@@ -18,6 +18,7 @@ from clio.capabilities.assistant import (
 )
 from clio.capabilities.calculate import format_number, parse_calculation
 from clio.capabilities.chance import decide, parse_chance_request
+from clio.capabilities.clipboard import Clipboard, parse_clipboard_request
 from clio.capabilities.clock import answer as clock_answer, parse_clock_request
 from clio.capabilities.control import (
     apply as apply_control, describe_action, parse_close, parse_control, parse_media, parse_power,
@@ -116,6 +117,7 @@ class Orchestrator:
         # Set per intent: an intent is deterministic unless it says otherwise.
         self._intent_used_llm = False
         self._stopwatch = Stopwatch()
+        self._clipboard = Clipboard()
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -379,6 +381,30 @@ class Orchestrator:
             value, source, target = payload  # type: ignore[misc]
             return format_conversion(value, source, target)
 
+        async def clipboard(payload: object) -> str:
+            request = payload  # type: ignore[assignment]
+            if request.kind == "read":
+                return self._clipboard.read()
+            if request.kind == "restore":
+                return self._clipboard.restore()
+
+            original, refusal = self._clipboard.take()
+            if refusal:
+                return refusal
+            self._intent_used_llm = True
+            result = await self._llm.complete(
+                [
+                    {"role": "system", "content":
+                        "You rewrite text. Return only the rewritten text - no preamble, no "
+                        "explanation, no quotes around it. If the instruction does not apply, "
+                        "return the text unchanged."},
+                    {"role": "user", "content":
+                        f"{request.instruction}\n\n---\n{original}"},
+                ],
+                tier="default",
+            )
+            return self._clipboard.replace(original, result.strip())
+
         async def clock(payload: object) -> str:
             kind, value = payload  # type: ignore[misc]
             return clock_answer(kind, value)
@@ -464,6 +490,7 @@ class Orchestrator:
         self._router.register("help", parse_help_request, help_me)
         self._router.register("voice", parse_voice_request, voice)
         self._router.register("chance", parse_chance_request, chance)
+        self._router.register("clipboard", parse_clipboard_request, clipboard)
         # Currency before units: both say "convert X to Y", and only the
         # currency matcher knows a rupee is not a unit of length.
         self._router.register(

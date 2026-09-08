@@ -264,7 +264,15 @@
     - **Not tested, and still the most important gap: the CONFIRM tier.** "Go to sleep" was never asked, so nothing has yet confirmed out loud. Also untested by voice: chance, network, help, voice speed, media, per-app volume, open, files, close.
     - One `input overflow` at startup, same as previous runs, still unexplained.
 
-  - [ ] **3.7** Clipboard operations - read, transform, replace. "Fix the grammar in what I just copied."
+  - [x] **3.7** Clipboard operations - `clipboard.py`. Read it, change it, put it back. Raw `ctypes` against `user32`/`kernel32`, no dependency.
+    - **FREE, not CONFIRM, and the undo is what makes that defensible.** "Fix the grammar in what I just copied" only works if it is one sentence - a capability that asks permission every time is slower than doing it by hand, which defeats it entirely. What was replaced is kept, so "put it back" restores it exactly.
+    - **It refuses to send anything that looks like a credential.** A clipboard is where passwords and API keys live in transit, and "summarise what I copied" said while a key is on it must not put that key in a prompt. Blunt patterns on purpose: a false positive costs one rephrase, a false negative leaks a key. Reading is local and never sends anything at all.
+    - **The instruction is passed through verbatim rather than matched against a list of transforms.** "Make it less passive aggressive" is not something anyone would enumerate, and the model can already do it. The matcher's job is only to decide it *is* a clipboard request.
+    - **Every pattern requires an explicit reference to the clipboard.** Without that, "make it shorter" is a remark about the conversation. A change verb is required as well, so merely mentioning the clipboard is not a rewrite request.
+    - **Found on the first real round trip: an undeclared `argtypes` overflowed the 64-bit handle** - `SetClipboardData` raised "int too long to convert". A mocked clipboard would never have caught it, which is why the standing check drives the real one and restores the original afterwards.
+    - Long clipboards are described rather than recited - "400 words, starting..." - because reading a page aloud is unusable.
+    - Second intent to reach the model, after `files`, and it declares the call the same way.
+
   - [ ] **3.8** Quick capture - "note this down", into a findable plain-text store
 
   *Verify:* Ten capabilities registered, each reachable by voice, destructive ones asking first.

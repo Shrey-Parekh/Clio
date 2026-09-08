@@ -65,6 +65,10 @@ _DEFAULT_RULES: dict[str, Permission] = {
     # Closing a window can lose unsaved work, so it asks - the same reasoning
     # that separates power from control.
     "close": Permission.CONFIRM,
+    # Replacing the clipboard is FREE because asking every time is slower than
+    # doing it by hand, which would defeat the capability. What makes that safe
+    # is that the previous contents are kept and "put it back" restores them.
+    "clipboard": Permission.FREE,
 }
 
 _AFFIRMATIVE = {
