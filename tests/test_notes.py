@@ -44,11 +44,20 @@ async def main():
         # Bare forms carry no content - the caller fills it from the conversation.
         for bare in ["note that down", "note this down", "write that down", "jot that down"]:
             assert parse_note_request(bare) == Request("add", ""), bare
+        # Exactly what Whisper produced in the 8 Sept session. Anchored
+        # patterns rejected both, and "read my notes" fell through to the file
+        # search, which read a random file out loud.
+        assert parse_note_request("I read my notes.") == Request("read")
+        assert parse_note_request("Take a note that on Wednesday I have my listening test") == (
+            Request("add", "on wednesday i have my listening test")
+        )
         assert parse_note_request("what's in my notes") == Request("read")
         assert parse_note_request("read my notes") == Request("read")
 
         for text in ["what time is it", "remember that i hate coriander",
-                     "read the roadmap", "tell me a joke"]:
+                     "read the roadmap", "tell me a joke",
+                     "i wrote a note to my friend yesterday", "he wrote it down",
+                     "denote the value"]:
             assert parse_note_request(text) is None, (text, parse_note_request(text))
         print("OK  notes matched, and corrections left to the correction path")
 

@@ -77,6 +77,16 @@ _CONNECTOR = re.compile(
 )
 _MAX_STEPS = 4
 
+# Said, but not a request. "Clio, what time is it and flip a coin" split into
+# three, and the part reading "clio" matched nothing - which under the
+# all-parts-must-match rule threw away the whole chain and answered only the
+# time. Her own name is the one that actually happened.
+_FILLER = {
+    "clio", "hey", "hi", "hello", "please", "thanks", "thank you", "ok", "okay",
+    "also", "and", "so", "well", "um", "uh", "yeah", "right",
+}
+_PUNCT = re.compile(r"[.!?,;:]+$")
+
 
 class IntentRouter:
     def __init__(self, policy: PermissionPolicy | None = None) -> None:
@@ -137,7 +147,10 @@ class IntentRouter:
         whole sentence as one request, which is what it was before this
         existed, so a bad split cannot make things worse than not splitting.
         """
-        parts = [p.strip() for p in _CONNECTOR.split(text) if p.strip()]
+        parts = [
+            part for part in (p.strip() for p in _CONNECTOR.split(text))
+            if part and _PUNCT.sub("", part.lower()) not in _FILLER
+        ]
         if 2 <= len(parts) <= _MAX_STEPS:
             steps = [self.match(part) for part in parts]
             if all(step is not None for step in steps):

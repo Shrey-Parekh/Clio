@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ctypes
 import re
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -36,6 +37,12 @@ from clio.core.logging import get_logger
 log = get_logger("clio.clipboard")
 
 _CF_UNICODETEXT = 13
+# The clipboard is a single global lock every app grabs briefly when it paints
+# a menu or a tooltip. One failed OpenClipboard was being reported as "nothing
+# on your clipboard", which is why reading it worked only sometimes. Windows'
+# own guidance is to retry.
+_OPEN_ATTEMPTS = 8
+_OPEN_WAIT_S = 0.02
 _GMEM_MOVEABLE = 0x0002
 _MAX_TRANSFORM_CHARS = 8000
 
@@ -113,10 +120,22 @@ def parse_clipboard_request(text: str) -> Request | None:
     return None
 
 
+def _open_clipboard() -> bool:
+    for attempt in range(_OPEN_ATTEMPTS):
+        if _user32.OpenClipboard(None):
+            return True
+        time.sleep(_OPEN_WAIT_S)
+    log.warning(
+        "Clipboard busy",
+        extra={"extra_fields": {"attempts": _OPEN_ATTEMPTS, "error": ctypes.GetLastError()}},
+    )
+    return False
+
+
 def read_text() -> str | None:
     """None means there is no text on the clipboard - it may be empty, or hold
     an image, which is not the same thing as an error."""
-    if not _user32.OpenClipboard(None):
+    if not _open_clipboard():
         return None
     try:
         handle = _user32.GetClipboardData(_CF_UNICODETEXT)
@@ -134,7 +153,7 @@ def read_text() -> str | None:
 
 
 def write_text(text: str) -> bool:
-    if not _user32.OpenClipboard(None):
+    if not _open_clipboard():
         return False
     try:
         _user32.EmptyClipboard()

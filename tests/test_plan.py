@@ -93,6 +93,14 @@ async def main():
         "set a timer for one hour and thirty minutes")] == ["timer"]
     print("OK  'tea and coffee' and 'one hour and thirty minutes' stay one request")
 
+    # From the 8 Sept session: saying her name mid-sentence threw the chain
+    # away and only the time was answered.
+    assert [m.intent for m in real._router.plan(
+        "clio, what time is it and can you also flip a coin")] == ["clock", "chance"]
+    assert [m.intent for m in real._router.plan(
+        "hey, flip a coin and please tell me the time")] == ["chance", "clock"]
+    print("OK  a vocative or a courtesy no longer kills the chain")
+
     # --- everything runs, in the order he said it ---
 
     ran = []
@@ -103,6 +111,14 @@ async def main():
     assert spoken == "did alpha did beta did gamma" and used is False
     assert llm.calls == 0, "a chain of deterministic steps must stay deterministic"
     print(f"OK  three steps, in order, no model: {spoken!r}")
+
+    # --- a launch is given time to become a window before the next step ---
+
+    import clio.orchestrator as orchestrator_module
+    assert orchestrator_module._SETTLE_AFTER.get("open", 0) >= 1.0, (
+        "os.startfile returns before the window exists; without a settle the next "
+        "step acts on the desktop as it was, which looks like it never ran"
+    )
 
     # --- a failure stops the chain and says where ---
 

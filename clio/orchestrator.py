@@ -58,6 +58,10 @@ from clio.speech.wake_word import CHUNK_SAMPLES, WakeWordDetector
 
 log = get_logger("clio.orchestrator")
 
+# How long a step needs before the next one can see its effect. Only launching
+# needs it, and only when something follows.
+_SETTLE_AFTER = {"open": 1.5}
+
 
 async def wait_for_wake_word(
     detector: WakeWordDetector,
@@ -120,6 +124,8 @@ class Orchestrator:
         # Set per intent: an intent is deterministic unless it says otherwise.
         self._intent_used_llm = False
         self._stopwatch = Stopwatch()
+        # Held so the task is not garbage collected mid-flight.
+        self._consolidating: asyncio.Future | None = None
         self._clipboard = Clipboard()
         self._notes = NoteBook(notes_path or "memory/notes.md")
         self._wake_detector = wake_detector
@@ -192,6 +198,7 @@ class Orchestrator:
         while True:
             await self._speak_pending_announcements()
 
+            log.info("Listening for the wake word")
             phrase = await wait_for_wake_word(
                 self._wake_detector, self._frames, interrupt=self._announcement_ready
             )
@@ -299,7 +306,12 @@ class Orchestrator:
             turn_audio = next_turn
 
         if used_llm:
-            await self._consolidate_memory()
+            # Deliberately not awaited: this is a Groq call with retries and a
+            # local fallback behind it, and awaiting it here meant nothing read
+            # the microphone until it finished - every wake word said during
+            # consolidation was simply missed. It writes to memory, so nothing
+            # downstream is waiting on the result.
+            self._consolidating = asyncio.ensure_future(self._consolidate_memory())
 
     async def _listen_silently(self) -> np.ndarray | None:
         """The stop-command counterpart to ConversationSession's follow-up
@@ -382,6 +394,13 @@ class Orchestrator:
             ran.append(step)
             if reply:
                 said.append(reply)
+
+            # Launching is asynchronous by nature: os.startfile returns before
+            # the window exists. Without this, "open Chrome and minimise
+            # everything" minimises the desktop and then Chrome appears on top
+            # of it - both steps ran, and it looks like only the first did.
+            if index < len(steps) and step.intent in _SETTLE_AFTER:
+                await asyncio.sleep(_SETTLE_AFTER[step.intent])
 
         self._remember(steps, ran)
         return " ".join(said) if said else (reply if len(steps) == 1 else "")

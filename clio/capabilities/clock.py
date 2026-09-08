@@ -54,7 +54,7 @@ _PATTERNS: list[tuple[str, str]] = [
     ("date", r"what(?:'?s| is) (?:today'?s? |the )?date|what(?:'?s| is) today"),
     ("day", r"what day is it|what day of the week"),
     ("time", r"what(?:'?s| is) the time|what time is it|do you have the time|"
-             r"got the time|time please"),
+             r"got the time|time please|tell me the time|the time right now"),
 ]
 
 _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]

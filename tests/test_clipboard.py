@@ -75,7 +75,12 @@ async def main():
         assert write_text(SLOPPY) and read_text() == SLOPPY
         unicode_text = "line one\nline two - em dash, e, 日本語"
         assert write_text(unicode_text) and read_text() == unicode_text, "unicode must survive"
-        print("OK  reads and writes the real clipboard, unicode intact")
+        # From the 8 Sept session: reading worked "only sometimes". The
+        # clipboard is one global lock every app grabs briefly, and a single
+        # failed OpenClipboard was being reported as an empty clipboard.
+        write_text(SLOPPY)
+        assert all(read_text() == SLOPPY for _ in range(20)), "reads must not be flaky"
+        print("OK  reads and writes the real clipboard, unicode intact, twenty times running")
 
         # --- credentials never leave the machine ---
 

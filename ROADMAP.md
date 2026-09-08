@@ -298,6 +298,15 @@
 
   ---
 
+  - **Second live voice session, 8 Sept - four faults reported, four found, and none of them were where they looked.**
+    - **"Multitasking only does the first thing."** Two separate causes. `"Clio, what time is it and can you also flip a coin"` split into three parts, and the part reading `"clio"` matched nothing - which under the all-parts-must-match rule discarded the whole chain and answered only the time. Her own name was the thing that broke it. Filler and vocatives are now dropped before the rule is applied.
+    - The second cause was the opposite of a failure: `"open Chrome and then minimise everything"` **ran both steps**, 0.09s apart. `os.startfile` returns before the window exists, so the desktop was minimised and Chrome then appeared on top of it. Both ran; it looked like one did. A launch now settles before the next step.
+    - **"Read my notes doesn't work."** Whisper heard *"I read my notes."* The notes matcher was anchored, so a single leading word rejected it - and it then fell through to the file search, which found a file called notes and **read 724 characters of it aloud**. `"Take a note that..."` failed too: "take a note" was not in the verb list at all. Both phrasings are now in the standing check verbatim as Whisper produced them.
+    - **"The clipboard works only sometimes."** The clipboard is one global lock every app grabs briefly to paint a menu, and a single failed `OpenClipboard` was being reported as "there's nothing on your clipboard". It retries now. Twenty consecutive reads are asserted.
+    - **"After I say stop she doesn't respond at all" - the worst of the four, and nothing to do with stop.** End-of-conversation consolidation was awaited inline in the loop: a Groq call, with two retries and a local-model fallback behind it, during which **nothing was reading the microphone**. Every wake word said while it ran was missed. The last line in the log before the silence is that request. It runs detached now, and the loop logs when it re-arms so the next session can prove it.
+    - Also found by the new checks rather than the session: `"tell me the time"` was not a phrasing the clock knew.
+    - **What this session bought: four real bugs, three of which no test would ever have found**, because they were about how Whisper hears, how Windows schedules, and what the loop is doing while it is not listening.
+
   ## Phase 4 - Input surfaces
 
   Wake word alone is not enough. Three more ways in.

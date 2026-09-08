@@ -36,13 +36,21 @@ here by hand; nothing reads this file expecting a particular shape.
 _STRIP = re.compile(r"[.!?,;:]+$")
 _MAX_SPOKEN = 5
 
+# Whisper puts a word in front of almost everything: "read my notes" came back
+# as "I read my notes", which an anchored pattern rejects outright. Absorbed
+# here rather than loosened to a search, so "denote" and "he wrote it down"
+# still match nothing.
+_LEAD = r"^(?:(?:i|you|we|can you|could you|would you|please|clio|hey|ok|okay|now|just|"
+_LEAD += r"i'?d like to|i want to|let'?s)\s+)*"
+
 _PATTERNS: list[tuple[str, str]] = [
-    ("read", r"(?:what(?:'?s| is) (?:in )?(?:my |the )?notes|read (?:me |back )?(?:my |the )?notes|"
-             r"what did i note|my notes|last few notes)"),
-    ("add", r"add (?:this |that )?to (?:my |the )?notes\s*:?\s*(?P<content2>.*)"),
+    ("read", _LEAD + r"(?:what(?:'?s| is) (?:in )?(?:my |the )?notes|"
+                     r"read (?:me |back |out )?(?:my |the )?notes|"
+                     r"what did i note|my notes|last few notes)"),
+    ("add", _LEAD + r"add (?:this |that )?to (?:my |the )?notes\s*:?\s*(?P<content2>.*)"),
     # Content on the same breath: "note down that the bins go out on Tuesday".
-    ("add", r"(?:make a note|note|jot|write) (?:this |that |it )?(?:down |of )?"
-            r"(?:that |about )?(?P<content>.*)"),
+    ("add", _LEAD + r"(?:take a note|take note|make a note|note|jot|write)\s+"
+                    r"(?:this |that |it )?(?:down |of )?(?:that |about )?(?P<content>.*)"),
 ]
 
 _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]
