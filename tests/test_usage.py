@@ -22,10 +22,6 @@ class Fake:
         self.usage.record(Usage("fake-model", tier, p, c, r))
         yield self._reply
 
-    async def call_tool(self, messages, tools, tier="fast"):
-        return None
-
-
 class Dead:
     def __init__(self):
         self.usage = UsageTracker()
@@ -33,10 +29,6 @@ class Dead:
     async def stream(self, messages, tier="default"):
         raise LLMError("down")
         yield  # pragma: no cover
-
-    async def call_tool(self, messages, tools, tier="fast"):
-        raise LLMError("down")
-
 
 async def main():
     t = UsageTracker()

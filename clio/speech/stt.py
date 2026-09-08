@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
 
 import numpy as np
 
@@ -31,33 +30,6 @@ class STTEngine(ABC):
         """Load whatever is loaded lazily, ahead of the first real request.
         Default is a no-op - the hosted engine has nothing local to load."""
         return None
-
-    async def transcribe_stream(
-        self, audio_chunks: AsyncIterator[np.ndarray], interval_s: float = 1.5
-    ) -> AsyncIterator[str]:
-        """Yield improving partial transcripts as audio accumulates, by periodically
-        re-transcribing the growing buffer. Generic over any transcribe() implementation -
-        neither engine here supports true incremental decoding, so this is the practical
-        approximation: not free, but cheap enough at typical utterance lengths.
-        """
-        loop = asyncio.get_running_loop()
-        buffer: list[np.ndarray] = []
-        last_emit = loop.time()
-
-        async for chunk in audio_chunks:
-            buffer.append(chunk)
-            now = loop.time()
-            if now - last_emit >= interval_s:
-                last_emit = now
-                text = await self.transcribe(np.concatenate(buffer))
-                if text:
-                    yield text
-
-        if buffer:
-            text = await self.transcribe(np.concatenate(buffer))
-            if text:
-                yield text
-
 
 class FasterWhisperEngine(STTEngine):
     """Local STT via faster-whisper. Lazy-loads and warm-keeps the model."""

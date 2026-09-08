@@ -24,8 +24,6 @@ nvidia-cudnn-cu12==9.25.1.1
 # see docs/wake_word_training.md; this is only the Windows runtime dependency)
 openwakeword==0.6.0
 
-# Phase 1.7 - tool calling schema validation
-jsonschema==4.26.0
 
 # Phase 3.3 - system monitoring. RAM percentage and per-process CPU have no
 # stdlib equivalent on Windows; the alternative is parsing WMI/typeperf text

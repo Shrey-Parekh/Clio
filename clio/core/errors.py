@@ -9,7 +9,6 @@ from clio.core.config import ConfigError
 from clio.core.events import EventBus
 from clio.core.logging import get_logger
 from clio.llm.provider import LLMError, LLMPermanentError
-from clio.llm.tools import ToolCallError
 
 log = get_logger("clio.errors")
 
@@ -24,12 +23,11 @@ class SpokenError:
     retryable: bool
 
 
-# Ordered most-specific first: LLMPermanentError is an LLMError, ToolCallError
+# Ordered most-specific first: LLMPermanentError is an LLMError,
 # isn't a subclass of anything else here. Checked in order, first match wins.
 _RULES: list[tuple[type[Exception], str, str, bool]] = [
     (ConfigError, "config", "I can't start up - my configuration has a problem. Check the logs for details.", False),
     (LLMPermanentError, "llm", "I couldn't reach the language model - that request can't succeed no matter how many times I try it.", False),
-    (ToolCallError, "tool", "I couldn't complete that action - I wasn't able to work out valid arguments for it.", False),
     (LLMError, "llm", "I'm having trouble reaching the language model right now.", True),
     (asyncio.TimeoutError, "timeout", "That took too long and I had to give up.", True),
     (TimeoutError, "timeout", "That took too long and I had to give up.", True),

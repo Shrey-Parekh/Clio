@@ -73,7 +73,6 @@ class Turn:
 @dataclass(frozen=True)
 class SearchHit:
     turn: Turn
-    snippet: str
 
 
 class MemoryStore:
@@ -173,7 +172,7 @@ class MemoryStore:
 
         match = " OR ".join(f'"{t}"' for t in terms)
         sql = (
-            "SELECT ts, role, session, content, snippet(turns, 3, '', '', '...', 16) AS snip "
+            "SELECT ts, role, session, content "
             "FROM turns WHERE turns MATCH ?"
         )
         params: list = [match]
@@ -198,7 +197,6 @@ class MemoryStore:
         return [
             SearchHit(
                 turn=Turn(ts=r["ts"], role=r["role"], content=r["content"], session=r["session"]),
-                snippet=r["snip"],
             )
             for r in rows
         ]

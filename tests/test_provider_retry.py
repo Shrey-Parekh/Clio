@@ -32,10 +32,6 @@ class Scripted:
         if self.error and self.fail_after >= len(self.chunks):
             raise self.error
 
-    async def call_tool(self, messages, tools, tier="fast"):
-        raise NotImplementedError
-
-
 async def collect(provider):
     return "".join([c async for c in provider.stream([{"role": "user", "content": "hi"}])])
 

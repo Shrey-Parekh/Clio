@@ -18,17 +18,9 @@ class Dead:
         raise LLMError("network down")
         yield  # pragma: no cover
 
-    async def call_tool(self, messages, tools, tier="fast"):
-        raise LLMError("network down")
-
-
 class Local:
     async def stream(self, messages, tier="default"):
         yield "local answer"
-
-    async def call_tool(self, messages, tools, tier="fast"):
-        return None
-
 
 def build(llm):
     o = Orchestrator(
