@@ -197,10 +197,10 @@ def _volume(action: Action) -> str:
 
     if action.kind == "mute":
         volume.SetMute(1, None)
-        return "Muted."
+        return "That's the sound muted for you."
     if action.kind == "unmute":
         volume.SetMute(0, None)
-        return f"Unmuted, back to {current} percent."
+        return f"Sound's back on, at {current} percent."
 
     if action.kind == "volume_set":
         target = int(action.value)
@@ -217,7 +217,7 @@ def _volume(action: Action) -> str:
     # silence is the wrong answer to what he meant.
     if volume.GetMute() and target > 0:
         volume.SetMute(0, None)
-    return f"Volume {target} percent."
+    return f"Volume's sitting at {target} percent now."
 
 
 def _app_volume(action: Action) -> str:
@@ -241,7 +241,7 @@ def _app_volume(action: Action) -> str:
     if not touched:
         return f"Nothing called {action.value} is playing anything."
     what = touched[0] if len(set(touched)) == 1 else f"{len(touched)} {touched[0]} windows"
-    return f"{'Muted' if mute else 'Unmuted'} {what}."
+    return f"That's {what} {'muted' if mute else 'unmuted'} for you."
 
 
 def _media(action: Action) -> str:
@@ -269,7 +269,7 @@ def _close(action: Action) -> str:
     if handle is None:
         return f"I can't see a window for {action.value}."
     _user32.PostMessageW(handle, _WM_CLOSE, 0, 0)
-    return f"Closed {action.value}."
+    return f"That's {action.value} closed for you."
 
 
 # --- brightness -------------------------------------------------------------
@@ -305,7 +305,7 @@ def _brightness(action: Action) -> str:
         "(Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightnessMethods)"
         f".WmiSetBrightness(1, {level})"
     )
-    return f"Brightness {level} percent."
+    return f"Brightness is at {level} percent now."
 
 
 # --- windows ----------------------------------------------------------------
@@ -347,10 +347,10 @@ def _window_action(action: Action) -> str:
 
     if action.kind == "minimise":
         _user32.ShowWindow(handle, _SW_MINIMIZE)
-        return f"Minimised {action.value}."
+        return f"{action.value.capitalize()} is out of the way."
     if action.kind == "maximise":
         _user32.ShowWindow(handle, _SW_MAXIMIZE)
-        return f"Maximised {action.value}."
+        return f"{action.value.capitalize()} is filling the screen."
 
     _user32.ShowWindow(handle, _SW_RESTORE)
     # Windows refuses SetForegroundWindow from a process that did not last
@@ -361,13 +361,13 @@ def _window_action(action: Action) -> str:
     _user32.keybd_event(_VK_MENU, 0, _KEYUP, 0)
     if not _user32.SetForegroundWindow(handle):
         return f"Windows wouldn't let me bring {action.value} forward."
-    return f"Here's {action.value}."
+    return f"Here's {action.value}, front and centre."
 
 
 def _minimise_all() -> str:
     for key, flags in ((_VK_LWIN, 0), (_VK_D, 0), (_VK_D, _KEYUP), (_VK_LWIN, _KEYUP)):
         _user32.keybd_event(key, 0, flags, 0)
-    return "Desktop."
+    return "Right, everything's out of the way."
 
 
 # --- displays and power -----------------------------------------------------
@@ -375,9 +375,12 @@ def _minimise_all() -> str:
 _DISPLAY_ARGS = {
     "display_extend": "/extend", "display_clone": "/clone", "display_single": "/internal",
 }
+# Full sentences, not labels: these get spoken after another capability's
+# reply in a chain, where "Extended." lands as a non sequitur.
 _DISPLAY_SAID = {
-    "display_extend": "Extended.", "display_clone": "Mirrored.",
-    "display_single": "Main screen only.",
+    "display_extend": "Both screens are on now.",
+    "display_clone": "Both screens are showing the same thing.",
+    "display_single": "Main screen only now.",
 }
 
 

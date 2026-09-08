@@ -62,18 +62,24 @@ def parse_chance_request(text: str) -> tuple[str, tuple] | None:
 def decide(kind: str, args: tuple, rng: random.Random | None = None) -> str:
     rng = rng or random.SystemRandom()
 
+    # Spoken answers, not printed ones. A bare "Tails." is technically the
+    # whole answer and lands like a machine reading out a register - the
+    # sentence around it is what makes it sound like someone answering.
     if kind == "coin":
-        return f"{rng.choice(('Heads', 'Tails'))}."
+        return f"The coin came up {rng.choice(('heads', 'tails'))}."
 
     if kind == "number":
         low, high = args
-        return f"{rng.randint(low, high)}."
+        return f"I'll go with {rng.randint(low, high)} for that one."
 
     if kind == "dice":
         count, sides = args
         rolls = [rng.randint(1, sides) for _ in range(count)]
         if count == 1:
-            return f"{rolls[0]}."
-        return f"{', '.join(str(r) for r in rolls)}. {sum(rolls)} altogether."
+            return f"That's a {rolls[0]} on the dice."
+        # "5, 2, 7 altogether" sounds like three dice. The last "and" is what
+        # separates the rolls from the total when it is heard rather than read.
+        spoken = f"{', '.join(str(r) for r in rolls[:-1])} and {rolls[-1]}"
+        return f"You rolled {spoken}, {sum(rolls)} altogether."
 
-    return f"{rng.choice(args).capitalize()}."
+    return f"I'd go with {rng.choice(args)}, personally."

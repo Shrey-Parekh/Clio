@@ -53,15 +53,15 @@ class Stopwatch:
                 # have been in the middle of.
                 return f"Already running, {format_duration(self.elapsed_s())} so far."
             self._started_at = time.monotonic()
-            return "Stopwatch running."
+            return "Right, the stopwatch is running."
 
         if command == "stop":
             if not self.running:
-                return "The stopwatch isn't running."
+                return "The stopwatch isn't running just now."
             elapsed = self.elapsed_s()
             self._started_at = None
-            return f"Stopped at {format_duration(elapsed)}."
+            return f"Stopped it at {format_duration(elapsed)}."
 
         if not self.running:
-            return "The stopwatch isn't running."
-        return f"{format_duration(self.elapsed_s())} so far."
+            return "The stopwatch isn't running just now."
+        return f"You're {format_duration(self.elapsed_s())} in so far."

@@ -62,6 +62,9 @@ log = get_logger("clio.orchestrator")
 # needs it, and only when something follows.
 _SETTLE_AFTER = {"open": 1.5}
 
+# How often to prove the microphone is still delivering while nothing matches.
+_WAKE_HEARTBEAT_S = 15.0
+
 
 async def wait_for_wake_word(
     detector: WakeWordDetector,
@@ -80,9 +83,29 @@ async def wait_for_wake_word(
     capture can keep reading from it immediately after.
     """
     buffer = np.zeros(0, dtype=np.float32)
+    # Twice now she has gone quiet with "Listening for the wake word" as the
+    # last line in the log, which is indistinguishable between a dead mic
+    # stream and a detector that stopped scoring. This settles it: no
+    # heartbeat at all means no frames are arriving, a heartbeat with a flat
+    # peak means the audio is arriving and is not being recognised.
+    chunks = 0
+    peak = 0.0
+    last_beat = time.monotonic()
+
     async for frame in frames:
         if interrupt is not None and interrupt.is_set():
             return None
+
+        now = time.monotonic()
+        if now - last_beat >= _WAKE_HEARTBEAT_S:
+            log.info(
+                "Still listening",
+                extra={"extra_fields": {
+                    "chunks_since": chunks, "peak_score": round(peak, 3),
+                    "threshold": detector._threshold,
+                }},
+            )
+            chunks, peak, last_beat = 0, 0.0, now
 
         buffer = np.concatenate([buffer, frame])
         while buffer.size >= CHUNK_SAMPLES:
@@ -91,6 +114,8 @@ async def wait_for_wake_word(
             chunk = (np.clip(buffer[:CHUNK_SAMPLES], -1.0, 1.0) * 32767.0).astype(np.int16)
             buffer = buffer[CHUNK_SAMPLES:]
             phrase = detector.process(chunk)
+            chunks += 1
+            peak = max(peak, getattr(detector, "last_best", 0.0))
             if phrase is not None:
                 return phrase
     raise RuntimeError("mic frame stream ended before a wake word was detected")
@@ -588,7 +613,7 @@ class Orchestrator:
             return await describe_system(str(payload))
 
         async def calculate(payload: object) -> str:
-            return f"{format_number(float(payload))}."  # type: ignore[arg-type]
+            return f"That works out to {format_number(float(payload))}."  # type: ignore[arg-type]
 
         async def status(_payload: object) -> str:
             # Asked from the registry, not hardcoded: a capability that needs

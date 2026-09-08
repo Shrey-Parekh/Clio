@@ -115,7 +115,7 @@ class TimerCapability:
         itself from `_active` in its own `finally`, so nothing is left behind
         either way."""
         if not self._active:
-            return "There's no timer running."
+            return "You haven't got a timer running."
         count = len(self._active)
         for task in list(self._active.values()):
             task.cancel()
@@ -125,7 +125,8 @@ class TimerCapability:
         # asked in between must not answer from a timer that is already gone.
         self._deadlines.clear()
         log.info("Timers cancelled", extra={"extra_fields": {"count": count}})
-        return "Timer cancelled." if count == 1 else f"All {count} timers cancelled."
+        return ("That's the timer cancelled." if count == 1
+                else f"That's all {count} timers cancelled.")
 
     # Long enough to cover "it just went off", short enough that an hour later
     # the answer is simply that nothing is running.
@@ -139,10 +140,10 @@ class TimerCapability:
                 if ago <= self._RECENT_S:
                     when_said = "just now" if ago < 20 else f"{format_duration(ago)} ago"
                     return f"That one's done - your {format_duration(duration)} timer went off {when_said}."
-            return "There's no timer running."
+            return "You haven't got a timer running."
         left = sorted(max(0.0, d - time.monotonic()) for d in self._deadlines.values())
         if len(left) == 1:
-            return f"{format_duration(left[0])} left."
+            return f"You've got {format_duration(left[0])} left on it."
         others = f", and {len(left) - 1} more after that" if len(left) > 1 else ""
         return f"{format_duration(left[0])} left on the next one{others}."
 

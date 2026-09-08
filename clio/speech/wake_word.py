@@ -40,6 +40,8 @@ class WakeWordDetector:
         if self._model is not None:
             self._model.reset()
 
+    last_best: float = 0.0
+
     def process(self, chunk) -> str | None:
         """chunk: CHUNK_SAMPLES int16 mono samples @ 16kHz.
         Returns the triggered phrase (e.g. "Hey Clio"), or None if nothing crossed threshold.
@@ -50,6 +52,12 @@ class WakeWordDetector:
 
         model = self._ensure_loaded()
         predictions = model.predict(chunk)
+        # Kept so a caller can tell "no audio is arriving" from "audio is
+        # arriving and nothing sounds like her name" - two failures that look
+        # identical from outside and need opposite fixes.
+        # float(), not the numpy scalar predict() returns - the JSON log
+        # handler cannot serialise float32 and drops the record entirely.
+        self.last_best = float(max(predictions.values(), default=0.0))
 
         triggered_slug = None
         best_score = self._threshold

@@ -307,6 +307,15 @@
     - Also found by the new checks rather than the session: `"tell me the time"` was not a phrasing the clock knew.
     - **What this session bought: four real bugs, three of which no test would ever have found**, because they were about how Whisper hears, how Windows schedules, and what the loop is doing while it is not listening.
 
+  - **Third and fourth live sessions, 8 Sept. Everything from the second session held, and the CONFIRM tier finally confirmed out loud - both ways.**
+    - `"Go to sleep"` was answered *"Yes"* and **the machine actually suspended** - the 33 second `think_s` on that turn is the sleep itself, and she picked the conversation back up on resume. Later, *"No"* on the same request produced "Left it alone." Three phases after the permission tiers were built, they have now been exercised by voice in both directions.
+    - Chains held: `["clock", "chance"]` and `["open", "control"]`, with the launch settle showing as a clean two second gap between steps.
+    - **A wake-loop heartbeat was added first, because "she stopped responding" is two different bugs that look identical.** Every fifteen seconds of waiting she now logs chunks received and the highest wake score seen. No heartbeat means the microphone stream is dead; a heartbeat with a flat score means audio is arriving and nothing sounds like her name. The readings came back at 188 chunks per fifteen seconds - exactly realtime, no backlog - and survived a real suspend and resume.
+    - The diagnostic itself had a bug worth noting: the score is a numpy `float32`, which the JSON log handler cannot serialise, so the record was being dropped entirely. A diagnostic that does not appear in the log is worse than none.
+    - **The remaining complaint was tone, not correctness: "flip a coin" answered "Tails.", "minimise everything" answered "Desktop."** Every deterministic reply was rewritten as something a person would say out loud - a bare word is the whole answer and still lands like a machine reading out a register. `tests/test_everyday.py` now enforces a floor and a ceiling on the length, so a future capability cannot quietly reintroduce a one-word answer.
+    - "You rolled 5, 2, 7 altogether" sounds like three dice when heard rather than read; the last "and" is what separates the rolls from the total.
+    - **Known and not fixed: she says nothing until every step of a chain finishes.** With the launch settle that is 1.5 seconds of silence before both sentences arrive together. Speaking each step as it completes is the real fix and it touches the barge-in path, so it is a deliberate decision rather than an oversight.
+
   ## Phase 4 - Input surfaces
 
   Wake word alone is not enough. Three more ways in.

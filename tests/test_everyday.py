@@ -101,21 +101,21 @@ async def main():
         return None
 
     timers = TimerCapability(announce)
-    assert "no timer running" in timers.remaining()
+    assert "haven't got a timer running" in timers.remaining()
     timers.start(300)
-    assert "5 minutes left" in timers.remaining()
-    assert timers.cancel_all() == "Timer cancelled."
+    assert "5 minutes left on it" in timers.remaining()
+    assert timers.cancel_all() == "That's the timer cancelled."
     # From the live session: asked five seconds after a ten second timer went
     # off, "There's no timer running" was true and useless. A timer that fired
     # recently is what he is asking about.
     timers._last_fired = (time.monotonic() - 5, 10.0)
     assert "went off just now" in timers.remaining(), timers.remaining()
     timers._last_fired = (time.monotonic() - 600, 10.0)
-    assert "no timer running" in timers.remaining()
+    assert "haven't got a timer running" in timers.remaining()
     timers._last_fired = None
     # Cancelling clears the deadline immediately, not whenever the loop next
     # gets round to running the cancelled task.
-    assert "no timer running" in timers.remaining()
+    assert "haven't got a timer running" in timers.remaining()
     print("OK  timers cancel and report what's left")
 
     # --- 4. the stopwatch ---
@@ -123,9 +123,9 @@ async def main():
     watch = Stopwatch()
     assert parse_stopwatch_command("start a stopwatch") == "start"
     assert not watch.running and "isn't running" in watch.handle("check")
-    assert watch.handle("start") == "Stopwatch running." and watch.running
+    assert watch.handle("start") == "Right, the stopwatch is running." and watch.running
     assert "Already running" in watch.handle("start"), "restarting would throw away the measurement"
-    assert "Stopped at" in watch.handle("stop") and not watch.running
+    assert "Stopped it at" in watch.handle("stop") and not watch.running
     print("OK  stopwatch starts, reports and stops without losing a measurement")
 
     # --- 5. what can you do ---
@@ -174,9 +174,18 @@ async def main():
     assert parse_chance_request("pick between tea or coffee") == ("pick", ("tea", "coffee"))
     # One option is a question for the model, not a coin toss.
     assert parse_chance_request("pick a good restaurant") is None
-    assert decide("coin", (), rng) in ("Heads.", "Tails.")
+    assert decide("coin", (), rng) in (
+        "The coin came up heads.", "The coin came up tails."
+    )
     numbers = {decide("number", (1, 100), rng) for _ in range(30)}
     assert len(numbers) > 10, "a model would say 7 every time; this must not"
+    # Everything here is heard, never read. A bare "Tails." is the whole
+    # answer and still lands like a machine reading out a register.
+    for kind, args in [("coin", ()), ("dice", (1, 6)), ("dice", (2, 6)),
+                       ("number", (1, 10)), ("pick", ("tea", "coffee"))]:
+        said = decide(kind, args, rng)
+        assert len(said.split()) >= 5, f"too clipped to say out loud: {said!r}"
+        assert len(said.split()) <= 12, f"too long for a one-line answer: {said!r}"
     print(f"OK  chance is actually random: {sorted(numbers)[:5]}...")
 
     # --- 9. how fast she talks ---
