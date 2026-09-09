@@ -166,6 +166,13 @@ button = "x2"
 enabled = true
 combo = "ctrl+alt+d"
 
+[push_to_talk]
+# Hold a key to speak, release to end the turn, instead of waiting for the
+# silence that VAD endpointing listens for. Off by default. The key is a single
+# key you hold - a letter, digit, F1-F24, or "space". It still works normally.
+enabled = false
+key = "f8"
+
 [files]
 # The only folders she may look inside - listing, finding, searching and
 # reading, never writing. Empty means she says she has nowhere to look rather

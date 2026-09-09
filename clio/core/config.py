@@ -161,6 +161,16 @@ class DictationConfig:
 
 
 @dataclass(frozen=True)
+class PushToTalkConfig:
+    """Hold a key to speak, releasing to end the turn, instead of VAD
+    endpointing. Optional and defaulted, so a config predating it still starts;
+    off by default, so it claims no key until asked."""
+
+    enabled: bool
+    key: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -178,6 +188,7 @@ class Config:
     hotkey: HotkeyConfig
     mouse: MouseConfig
     dictation: DictationConfig
+    push_to_talk: PushToTalkConfig
     # Name -> path or URL, straight from TOML. A plain mapping, because a
     # dataclass around "whatever he decided to name his own things" would only
     # be a second place to edit every time he adds one.
@@ -336,6 +347,12 @@ def load_config(root: Path | None = None) -> Config:
             .strip().lower() in {"1", "true", "yes", "on"},
             combo=_env_override("CLIO_DICTATION_COMBO", str(dictation_raw.get("combo", "ctrl+alt+d"))),
         )
+        ptt_raw = raw.get("push_to_talk", {})
+        push_to_talk = PushToTalkConfig(
+            enabled=_env_override("CLIO_PTT_ENABLED", str(ptt_raw.get("enabled", False)))
+            .strip().lower() in {"1", "true", "yes", "on"},
+            key=_env_override("CLIO_PTT_KEY", str(ptt_raw.get("key", "f8"))),
+        )
         # Same reason as [location]: optional, so a config predating it starts.
         shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
         file_roots = tuple(
@@ -362,6 +379,7 @@ def load_config(root: Path | None = None) -> Config:
         hotkey=hotkey,
         mouse=mouse,
         dictation=dictation,
+        push_to_talk=push_to_talk,
         shortcuts=shortcuts,
         file_roots=file_roots,
         runtime=runtime,
@@ -397,6 +415,12 @@ def _validate(config: Config) -> None:
             parse_combo(config.dictation.combo)
         except ValueError as exc:
             errors.append(f"dictation.combo '{config.dictation.combo}' is unusable: {exc}")
+    if config.push_to_talk.enabled:
+        from clio.input.keyboard import parse_key
+        try:
+            parse_key(config.push_to_talk.key)
+        except ValueError as exc:
+            errors.append(f"push_to_talk.key '{config.push_to_talk.key}' is unusable: {exc}")
     if config.speech.tts_engine not in _VALID_TTS_ENGINES:
         errors.append(
             f"speech.tts_engine '{config.speech.tts_engine}' must be one of {sorted(_VALID_TTS_ENGINES)}"

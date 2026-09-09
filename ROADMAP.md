@@ -334,7 +334,11 @@
     - **SendInput with KEYEVENTF_UNICODE**, so it types by code unit into any app regardless of keyboard layout, no letter-to-VK mapping. Astral chars (emoji) go as UTF-16 surrogate pairs, which is what SendInput expects.
     - **Transcription, not conversation**: no model call, no spoken reply. It reuses the normal VAD turn capture and STT, then types instead of routing to the LLM. A separate hotkey from the conversation trigger, so the two never collide.
     - Reuses the 4.1 `HotkeyListener` and the shared trigger path (source "dictation" routes to `_dictate_once`). Combo validated at config load; `_utf16_units` and the dictate-and-type contract tested; the SendInput path verified live.
-  - [ ] **4.4** Push-to-talk mode - hold to speak, as an alternative to VAD endpointing
+  - [x] **4.4** Push-to-talk - hold a key to speak, release to end the turn, instead of VAD endpointing. `clio/input/keyboard.py` + `Orchestrator._ptt_turn`. Off by default in `[push_to_talk]`; default key `f8`.
+    - **Needs key-up, which RegisterHotKey can't give**, so this is a `WH_KEYBOARD_LL` hook - the keyboard sibling of 4.2's mouse hook. Key-down fires a turn and starts capture; key-up ends it. Autorepeat while held is de-duped to one turn.
+    - **Capture runs key-down to key-up**, bypassing VAD endpointing entirely, capped at 30s so a stuck key can't record forever. The captured audio is then answered as a normal turn (no follow-up window - the next turn is another hold, not speech).
+    - Shares the trigger path (source "ptt" routes to `_ptt_turn`); the key still works normally (pass-through hook). Key validated at config load; parser, flag contract and hold-to-release capture tested; the hook verified live.
+    - ponytail: `keyboard.py` mirrors `mouse.py`'s hook plumbing; two low-level hooks don't yet justify a shared base, noted for if a third lands.
 
   ---
 

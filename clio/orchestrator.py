@@ -17,9 +17,11 @@ from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.timer import TimerCapability
 from clio.core.config import (
     Config, ConfigError, DictationConfig, HotkeyConfig, LocationConfig, MouseConfig,
+    PushToTalkConfig,
 )
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
+from clio.input.keyboard import KeyListener
 from clio.input.mouse import MouseTrigger
 from clio.input.typing import type_text
 from clio.core.events import Event, EventBus
@@ -45,6 +47,9 @@ _SETTLE_AFTER = {"open": 1.5}
 
 # How often to prove the microphone is still delivering while nothing matches.
 _WAKE_HEARTBEAT_S = 15.0
+
+# Ceiling on one push-to-talk hold, so a stuck key can't record without end.
+_PTT_MAX_S = 30.0
 
 
 async def wait_for_wake_word(
@@ -109,6 +114,7 @@ class Orchestrator:
         hotkey: HotkeyConfig | None = None,
         mouse: MouseConfig | None = None,
         dictation: DictationConfig | None = None,
+        push_to_talk: PushToTalkConfig | None = None,
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
@@ -140,9 +146,12 @@ class Orchestrator:
         self._hotkey_config = hotkey
         self._mouse_config = mouse
         self._dictation_config = dictation
+        self._ptt_config = push_to_talk
         self._hotkey_listener: HotkeyListener | None = None
         self._mouse_trigger: MouseTrigger | None = None
         self._dictation_listener: HotkeyListener | None = None
+        self._ptt_listener: KeyListener | None = None
+        self._ptt_down = False
         self._triggered = False
         self._trigger_source = ""
         self._timers = TimerCapability(announce=self._announce)
@@ -205,7 +214,8 @@ class Orchestrator:
         try:
             await self._run_loop()
         finally:
-            for listener in (self._hotkey_listener, self._mouse_trigger, self._dictation_listener):
+            for listener in (self._hotkey_listener, self._mouse_trigger,
+                             self._dictation_listener, self._ptt_listener):
                 if listener is not None:
                     listener.stop()
 
@@ -235,6 +245,8 @@ class Orchestrator:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
             if phrase == "dictation":
                 await self._dictate_once()
+            elif phrase == "ptt":
+                await self._ptt_turn()
             else:
                 await self._conversation_loop()
 
@@ -242,7 +254,8 @@ class Orchestrator:
         hotkey_on = self._hotkey_config is not None and self._hotkey_config.enabled
         mouse_on = self._mouse_config is not None and self._mouse_config.enabled
         dictation_on = self._dictation_config is not None and self._dictation_config.enabled
-        if not (hotkey_on or mouse_on or dictation_on):
+        ptt_on = self._ptt_config is not None and self._ptt_config.enabled
+        if not (hotkey_on or mouse_on or dictation_on or ptt_on):
             return
         loop = asyncio.get_running_loop()
         if hotkey_on:
@@ -261,6 +274,12 @@ class Orchestrator:
                 self._dictation_config.combo, on_press=lambda: self._fire_trigger("dictation"), loop=loop
             )
             self._dictation_listener = listener if listener.start() else None
+        if ptt_on:
+            listener = KeyListener(
+                self._ptt_config.key, on_press=self._ptt_pressed, on_release=self._ptt_released,
+                loop=loop,
+            )
+            self._ptt_listener = listener if listener.start() else None
 
     def _fire_trigger(self, source: str) -> None:
         """Runs on the loop thread, scheduled from a listener thread. Kept to
@@ -268,6 +287,16 @@ class Orchestrator:
         self._triggered = True
         self._trigger_source = source
         self._announcement_ready.set()
+
+    def _ptt_pressed(self) -> None:
+        # Key-down repeats while held; only the first edge starts a turn.
+        if self._ptt_down:
+            return
+        self._ptt_down = True
+        self._fire_trigger("ptt")
+
+    def _ptt_released(self) -> None:
+        self._ptt_down = False
 
     async def _dictate_once(self) -> None:
         """Capture one turn and type it into the focused window — dictation is
@@ -280,6 +309,40 @@ class Orchestrator:
             return
         typed = await asyncio.to_thread(type_text, text)
         log.info("Dictated", extra={"extra_fields": {"chars": len(text), "typed": typed}})
+
+    async def _ptt_turn(self) -> None:
+        """Hold-to-talk: capture from key-down to key-up (no VAD endpointing),
+        then answer it as a normal turn."""
+        audio = await self._ptt_capture()
+        if audio.size == 0:
+            return
+        text = await self._transcribe(audio)
+        if not text:
+            return
+        self._memory.add_user(text)
+        self._record(role="user", content=text)
+        reply_text, used_llm = await self._handle_utterance(text)
+        if reply_text:
+            # No follow-up window: the next turn is another key-hold, not speech.
+            session = ConversationSession(self._speaker, follow_up_window_s=0.0)
+            outcome = await session.respond(reply_text, self._frames)
+            heard = (outcome.spoken_text or "").strip()
+            if heard:
+                self._memory.add_assistant(heard)
+                self._record(role="assistant", content=heard)
+        if used_llm:
+            self._consolidating = asyncio.ensure_future(self._consolidate_memory())
+
+    async def _ptt_capture(self) -> np.ndarray:
+        """Collect frames while the key is held, capped so a stuck key can't
+        record forever."""
+        frames: list[np.ndarray] = []
+        deadline = time.monotonic() + _PTT_MAX_S
+        async for frame in self._frames:
+            frames.append(frame)
+            if not self._ptt_down or time.monotonic() > deadline:
+                break
+        return np.concatenate(frames) if frames else np.array([], dtype=np.float32)
 
     async def _warm_up_models(self) -> None:
         for label, engine in (("stt", self._stt), ("tts", self._speaker.engine)):
@@ -685,6 +748,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         hotkey=config.hotkey,
         mouse=config.mouse,
         dictation=config.dictation,
+        push_to_talk=config.push_to_talk,
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),
