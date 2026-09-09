@@ -49,11 +49,8 @@ async def wait_for_wake_word(
     interrupt: asyncio.Event | None = None,
 ) -> str | None:
     buffer = np.zeros(0, dtype=np.float32)
-    # Twice now she has gone quiet with "Listening for the wake word" as the
-    # last line in the log, which is indistinguishable between a dead mic
-    # stream and a detector that stopped scoring. This settles it: no
-    # heartbeat at all means no frames are arriving, a heartbeat with a flat
-    # peak means the audio is arriving and is not being recognised.
+    # Heartbeat so a silent log is diagnosable: no beat means no frames arriving;
+    # a beat with a flat peak means audio is arriving but nothing matched.
     chunks = 0
     peak = 0.0
     last_beat = time.monotonic()
@@ -294,19 +291,14 @@ class Orchestrator:
             )
 
             if not reply_text:
-                # A stop command: say nothing, don't restart the follow-up-window
-                # clock through speech that doesn't happen - just keep listening.
-                # Empty counts as silent as well as None: locking, sleeping and
-                # the media keys have nothing worth saying, and speaking an
-                # empty string is still a turn with real latency.
+                # Stop, or an empty reply (lock/sleep/media): say nothing and keep
+                # listening. Speaking an empty string is still a turn with latency.
                 next_turn = await self._listen_silently()
             else:
                 session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
                 outcome = await session.respond(reply_text, self._frames)
 
-                # What she actually said, not what was generated: barge-in means
-                # those differ, and recording the generated text would leave her
-                # believing she said things the user never heard.
+                # What was actually said, not generated — barge-in makes them differ.
                 heard = (outcome.spoken_text or "").strip()
                 if outcome.interrupted:
                     # Worded as "stopped deliberately", not "unfinished": the
@@ -329,11 +321,8 @@ class Orchestrator:
             turn_audio = next_turn
 
         if used_llm:
-            # Deliberately not awaited: this is a Groq call with retries and a
-            # local fallback behind it, and awaiting it here meant nothing read
-            # the microphone until it finished - every wake word said during
-            # consolidation was simply missed. It writes to memory, so nothing
-            # downstream is waiting on the result.
+            # Not awaited: it's a Groq call with retries, and awaiting it here
+            # would stop the mic being read meanwhile. It only writes to memory.
             self._consolidating = asyncio.ensure_future(self._consolidate_memory())
 
     async def _listen_silently(self) -> np.ndarray | None:
@@ -383,9 +372,8 @@ class Orchestrator:
         a way to get a confirm-tier action past its confirmation.
         """
         said: list[str] = []
-        # Only what actually ran is remembered, so "again" can never re-run
-        # something he declined - the guarantee 2.6 established, kept intact
-        # now that a request can be several steps.
+        # Only what actually ran is remembered, so "again" never re-runs a
+        # declined step.
         ran: list[Match] = []
         for index, step in enumerate(steps, start=1):
             if len(steps) > 1:
@@ -418,10 +406,8 @@ class Orchestrator:
             if reply:
                 said.append(reply)
 
-            # Launching is asynchronous by nature: os.startfile returns before
-            # the window exists. Without this, "open Chrome and minimise
-            # everything" minimises the desktop and then Chrome appears on top
-            # of it - both steps ran, and it looks like only the first did.
+            # os.startfile returns before the window exists, so let a launch
+            # settle before the next step acts on the desktop behind it.
             if index < len(steps) and step.intent in _SETTLE_AFTER:
                 await asyncio.sleep(_SETTLE_AFTER[step.intent])
 
@@ -440,9 +426,8 @@ class Orchestrator:
         """What he needs to hear is the boundary: what is done, and what is not."""
         done = " ".join(said)
         remaining = len(steps) - index
-        # Counted rather than named: an intent's description is a fragment
-        # ("Locking the screen"), and "I haven't Locking the screen" is worse
-        # than saying how much is left.
+        # Counted, not named: an intent description is a fragment, so "I haven't
+        # Locking the screen" reads worse than a number.
         tail = "" if remaining == 0 else (
             " There's one more I haven't done." if remaining == 1
             else f" There are {remaining} more I haven't done."
@@ -518,9 +503,8 @@ class Orchestrator:
         if steps:
             self._intent_used_llm = False
             spoken = await self._run_plan(steps)
-            # Almost every intent is free, but summarising a file is not, and
-            # reporting it as free would under-count the session and skip the
-            # end-of-conversation consolidation.
+            # Most intents are free; summarising a file isn't, and that must be
+            # reported so the session is accounted for.
             return spoken, self._intent_used_llm
 
         # Retrieval happens only on the LLM path - a deterministic command must
