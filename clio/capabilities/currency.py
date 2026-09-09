@@ -1,13 +1,8 @@
-"""Currency conversion against live rates.
+"""Currency conversion against live rates — the one utility that can't be
+offline, since a rate is a fact about today, not a constant.
 
-The one utility here that cannot be offline: a rate is a fact about today, not
-a constant, and a cached one quoted confidently is worse than saying the rate
-is unavailable. Frankfurter publishes the ECB's daily reference rates and needs
-no API key or account, so nothing has to be registered or kept secret; the
-request carries an amount and two currency codes and nothing else.
-
-Rates are the ECB's daily fix, not a live trading price - fine for "how much is
-that in rupees", not for anything that settles money.
+Frankfurter's ECB daily reference rates, no API key. Not a live trading price:
+fine for "how much is that in rupees", not for settling money.
 """
 
 from __future__ import annotations
@@ -65,8 +60,6 @@ async def convert_currency(amount: float, source: str, target: str) -> str:
     rates = payload.get("rates") or {}
     converted = rates.get(target)
     if converted is None:
-        # A 200 with the pair missing means the API knows the codes but not
-        # this pair - saying so beats reading `None` aloud.
         raise ValueError(f"no published rate for {source} to {target}")
 
     on = payload.get("date", "")

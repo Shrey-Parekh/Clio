@@ -1,13 +1,9 @@
 """Am I online, what am I connected to, and what is my address.
 
-Distinct from `status`, which answers "is the *model* reachable", and from
-`system`, which reads the hardware. This one answers "is the *network* there",
-and it has to keep working when the answer is no - so reachability is a socket
-open with a short timeout, never a request that hangs waiting for a reply.
-
-The local address is what "my IP" means on a home network nine times out of
-ten, so that is the default; the public one is only fetched when he asks for it
-by name, because that is the one that leaves the house.
+Distinct from `status` (is the model reachable) and `system` (hardware). It
+must work when the answer is no, so reachability is a short-timeout socket
+connect, never a request that can hang. Local IP is the default; the public one
+(which leaves the house) is fetched only when asked for by name.
 """
 
 from __future__ import annotations
@@ -58,11 +54,8 @@ def is_online(timeout_s: float = _PROBE_TIMEOUT_S) -> bool:
 
 
 def local_ip() -> str:
-    """The address this machine uses to reach the outside world, which is the
-    one that matters on a LAN. A UDP socket is opened but nothing is sent -
-    connect() on UDP only picks the route, so this works with the network down
-    and costs no packets.
-    """
+    """This machine's LAN address. UDP connect() only picks a route and sends
+    nothing, so it works with the network down and costs no packets."""
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         probe.connect(_PROBE)
@@ -115,8 +108,7 @@ async def describe_network(kind: str) -> str:
             return "I can't work out this machine's address - the network looks down."
         return f"This machine is {_spoken_ip(address)} on the local network."
 
-    # The only one that leaves the house, and the only one that can fail
-    # because of the very thing it is being asked about.
+    # The only lookup that leaves the house, and can fail on the very thing asked.
     if not await asyncio.to_thread(is_online):
         return "I can't check that with the internet down."
     payload = await get_json(_PUBLIC_IP_API, {"format": "json"})

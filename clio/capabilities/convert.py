@@ -1,9 +1,8 @@
-"""Unit conversion, offline and exact. A conversion factor is a known constant,
-so asking a model for one trades a correct answer for a plausible one.
+"""Unit conversion, offline and exact — a factor is a constant, so a model would
+only trade a correct answer for a plausible one.
 
-Everything within a dimension converts through a base unit. Temperature is the
-exception - it is affine, not a ratio, so 20C is not "twice" 10C and a factor
-table would silently produce nonsense.
+Each dimension converts through a base unit. Temperature is affine, not a ratio,
+so it converts through celsius instead of a factor.
 """
 
 from __future__ import annotations
@@ -94,11 +93,8 @@ _REVERSE = re.compile(
 
 
 def parse_conversion(text: str) -> tuple[float, str, str] | None:
-    """Returns (value, source unit, target unit) if `text` clearly asks for a
-    conversion between two units of the same kind, else None. Mismatched
-    dimensions - miles into kilograms - are refused here rather than answered
-    with a meaningless number.
-    """
+    """(value, source, target) if `text` asks to convert between two units of
+    the same kind, else None. Mismatched dimensions are refused here."""
     lowered = " ".join(text.lower().split())
     match = _FORWARD.search(lowered) or _REVERSE.search(lowered)
     if match is None:

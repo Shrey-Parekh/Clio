@@ -1,11 +1,6 @@
-"""Arithmetic, spoken. Zero LLM involvement: a model that does mental
-arithmetic is slower, costs a call, and is occasionally confidently wrong,
-which is the one thing a calculator may never be.
-
-Evaluated by walking the parse tree rather than `eval`, so nothing outside
-arithmetic can execute even if the transcriber produces something strange.
-Anything that isn't clearly a sum returns None and falls through to plain
-conversation instead of being guessed at.
+"""Arithmetic, spoken. No LLM — a model doing mental arithmetic is slower and
+occasionally confidently wrong. Evaluated by walking the AST, not `eval`, so
+nothing outside arithmetic can run. Anything not clearly a sum returns None.
 """
 
 from __future__ import annotations
