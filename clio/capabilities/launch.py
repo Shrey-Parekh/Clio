@@ -1,21 +1,9 @@
-"""Opening things by the name he'd actually say - apps, folders, URLs, projects.
+"""Open apps, folders, URLs and configured shortcuts by spoken name.
 
-The first capability that does something to the machine rather than reporting
-on it, so what it will agree to open is deliberately bounded:
-
-- Shortcuts he configured himself, by name.
-- Anything already in his Start Menu, which is the list of things he has
-  installed on purpose.
-- A handful of well-known folders, and a spoken URL.
-
-It never resolves a path out of the utterance. "Open C colon backslash..." is
-not a thing she can be talked into, because the transcriber will eventually
-mishear something into that slot, and running whatever came out of it is a
-different class of problem from opening the wrong app.
-
-Nothing here is destructive - the worst outcome is a window he closes again -
-so it stays FREE. Asking "shall I?" before every launch would make the
-capability worse than the Start Menu it replaces.
+Bounded to configured shortcuts, the Start Menu, a few well-known folders, and
+a spoken URL. It never resolves a path out of the utterance — the transcriber
+would eventually mishear one, and running that is a different class of problem.
+Worst case is a window closed again, so it stays FREE.
 """
 
 from __future__ import annotations
@@ -37,15 +25,12 @@ _OPEN = re.compile(
     r"(?:up\s+)?(?P<article>the\s+|my\s+|a\s+|an\s+)?(?P<target>.+)$"
 )
 
-# A long phrase after "open" is far more likely to be conversation than a
-# request to launch something - "open up about what's bothering you" is not a
-# missing application.
+# A long phrase after "open" is more likely conversation than a launch —
+# "open up about what's bothering you" is not a missing app.
 _MAX_TARGET_WORDS = 5
 
-# Claiming "I couldn't find that" is only safe for a short name. "Open up about
-# what's bothering you" resolved to nothing and said so, which is a worse
-# answer than letting it fall through to conversation - so past this length an
-# unmatched phrase is treated as speech, not as a missing application.
+# Past this length, an unmatched phrase is treated as speech, not a missing app:
+# "I couldn't find that" is only a safe answer for a short name.
 _MAX_UNKNOWN_WORDS = 2
 
 _SPOKEN_URL = re.compile(
@@ -84,13 +69,8 @@ def _start_menu_dirs() -> list[Path]:
 
 @functools.lru_cache(maxsize=1)
 def installed_apps() -> dict[str, str]:
-    """Start Menu shortcut name -> shortcut path.
-
-    Cached for the life of the process: scanning two trees on every "open
-    something" would be paid on the hot path, and installing an app mid-session
-    is rare enough to be worth a restart. Shortcuts are opened as shortcuts -
-    Windows resolves the target, so nothing here has to parse a .lnk.
-    """
+    """Start Menu shortcut name -> shortcut path. Cached for the process life
+    (a new app mid-session is rare enough to be worth a restart)."""
     apps: dict[str, str] = {}
     for root in _start_menu_dirs():
         for link in root.rglob("*.lnk"):
@@ -115,11 +95,9 @@ def _best_app(query: str, apps: dict[str, str]) -> str | None:
 
 
 def resolve(text: str, shortcuts: dict[str, str] | None = None) -> Target | None:
-    """None means this was not an open request at all, and it falls through to
-    conversation. A request that *was* one but matched nothing comes back as
-    kind "unknown", so she says she couldn't find it rather than handing the
-    model a chance to improvise a confirmation for something that never ran.
-    """
+    """None means not an open request (falls through to conversation). One that
+    was but matched nothing returns kind "unknown", so she says she couldn't
+    find it rather than letting the model improvise."""
     match = _OPEN.match(_normalise(text))
     if match is None:
         return None
@@ -128,9 +106,8 @@ def resolve(text: str, shortcuts: dict[str, str] | None = None) -> Target | None
     if not target or len(target.split()) > _MAX_TARGET_WORDS:
         return None
 
-    # Both with and without the article, longer first: stripping "the" off
-    # "open the roadmap" makes a shortcut he named "the roadmap" unreachable,
-    # and he names his own shortcuts however he says them.
+    # Try with and without the article: a shortcut named "the roadmap" must
+    # stay reachable, but "the" must also be strippable.
     article = _normalise(match.group("article") or "")
     spoken = [f"{article} {target}".strip(), target] if article else [target]
     for name, path in (shortcuts or {}).items():
@@ -163,8 +140,7 @@ def open_target(target: Target) -> str:
         return f"I couldn't find anything called {target.name}."
 
     try:
-        # Windows' own "open with whatever handles this", which covers a
-        # shortcut, a folder and a URL without three code paths.
+        # Windows' own handler dispatch — one path for shortcut, folder and URL.
         os.startfile(target.path)  # noqa: S606
     except OSError as exc:
         log.warning(

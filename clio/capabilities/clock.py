@@ -1,12 +1,7 @@
 """The time, the date, and how long until something.
 
-The most obviously missing capability in the whole assistant: until now she
-could convert currencies and read the GPU temperature but could not answer
-"what time is it".
-
-Spoken, so the formatting matters more than the logic. "13:06" is read out as
-digits by a TTS engine and lands badly; "six minutes past one" is what a person
-says. Same for dates - the ordinal is spoken, never the numeral.
+Spoken, so formatting matters more than logic: a TTS engine reads "13:06" as
+digits, so times come out as "six minutes past one" and dates as ordinals.
 """
 
 from __future__ import annotations
@@ -17,8 +12,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _STRIP = re.compile(r"[.!?,;:]+$")
 
-# Places he might plausibly ask about, by the name he'd say rather than the
-# IANA key. A full city database would be a lookup service, not a capability.
+# Spoken place name -> IANA zone. A full city database would be a lookup
+# service, not a capability.
 _PLACES = {
     "london": "Europe/London", "uk": "Europe/London", "england": "Europe/London",
     "new york": "America/New_York", "nyc": "America/New_York",
@@ -46,8 +41,8 @@ _MONTHS = {
 }
 
 _PATTERNS: list[tuple[str, str]] = [
-    # "is it" has to be optional in the middle: "what time is it in Tokyo"
-    # is the natural phrasing and "time in Tokyo" is the terse one.
+    # "is it" optional in the middle: covers both "what time is it in Tokyo"
+    # and the terse "time in Tokyo".
     ("elsewhere", r"(?:what(?:'?s| is) the )?time (?:is it )?(?:in|over in) (?P<value>[\w ]+)"),
     ("days_until", r"how many days (?:until|till|til|to) (?P<value>.+)"),
     ("until", r"how (?:long|much longer) (?:until|till|til|to) (?P<value>.+)"),
@@ -59,9 +54,8 @@ _PATTERNS: list[tuple[str, str]] = [
 
 _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]
 
-# Digits only. A transcriber turns a spoken time into "6pm" or "18:30"
-# reliably and into prose ("half six") unreliably, so prose is not accepted
-# rather than being guessed at.
+# Digits only: a transcriber gives "6pm"/"18:30" reliably, "half six" not, so
+# prose isn't accepted rather than guessed.
 _CLOCK_TIME = re.compile(r"^(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>am|pm)?$")
 _DATE = re.compile(r"^(?:the )?(?P<day>\d{1,2})(?:st|nd|rd|th)? (?:of )?(?P<month>[a-z]+)$|"
                    r"^(?P<month2>[a-z]+) (?:the )?(?P<day2>\d{1,2})(?:st|nd|rd|th)?$")
@@ -78,9 +72,8 @@ def parse_clock_request(text: str) -> tuple[str, str] | None:
         if found is None:
             continue
         value = (found.groupdict().get("value") or "").strip()
-        # An unknown place or an unparseable target is not a clock question she
-        # can answer, so it falls through to conversation rather than coming
-        # back as a refusal built from half a place name.
+        # Unknown place or unparseable target: fall through to conversation
+        # rather than refuse with half a place name.
         if kind == "elsewhere" and value not in _PLACES:
             return None
         if kind in ("until", "days_until") and _target(kind, value) is None:
@@ -95,8 +88,7 @@ def _ordinal(day: int) -> str:
 
 
 def speak_time(moment: datetime) -> str:
-    """Twelve-hour and in words. A TTS engine reads "13:06" as digits, which is
-    not how anyone says the time out loud."""
+    """Twelve-hour, in words — a TTS engine reads "13:06" as digits."""
     hour = moment.hour % 12 or 12
     minute = moment.minute
     part = "in the morning" if moment.hour < 12 else (
@@ -110,16 +102,13 @@ def speak_time(moment: datetime) -> str:
         return f"half past {hour} {part}"
     if minute == 45:
         return f"quarter to {hour % 12 + 1} {part}"
-    # Past and to, not "1 06" - which a TTS engine reads out as digits and
-    # nobody says anyway.
     if minute < 30:
         return f"{minute} minutes past {hour} {part}"
     return f"{60 - minute} minutes to {hour % 12 + 1} {part}"
 
 
 def _target(kind: str, value: str, now: datetime | None = None) -> datetime | None:
-    """The moment he's counting down to, or None if it wasn't clear enough to
-    be worth guessing at."""
+    """The moment being counted down to, or None if it wasn't clear."""
     now = now or datetime.now()
 
     if kind == "days_until":
@@ -136,8 +125,7 @@ def _target(kind: str, value: str, now: datetime | None = None) -> datetime | No
                                  minute=0, second=0, microsecond=0)
         except ValueError:
             return None  # the 31st of February
-        # A date already past means next year: "how many days until January"
-        # asked in December is not a negative number.
+        # A past date means next year, so December's "days until January" > 0.
         return target if target.date() >= now.date() else target.replace(year=now.year + 1)
 
     found = _CLOCK_TIME.match(value)
@@ -153,8 +141,7 @@ def _target(kind: str, value: str, now: datetime | None = None) -> datetime | No
     elif meridiem == "am" and hour == 12:
         hour = 0
     elif meridiem is None and hour < 8:
-        # No am/pm and an early hour: "how long until 6" means this evening,
-        # not three in the morning.
+        # No am/pm, early hour: "how long until 6" means this evening.
         hour += 12
 
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
