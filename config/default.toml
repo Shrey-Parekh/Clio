@@ -159,6 +159,13 @@ combo = "ctrl+alt+c"
 enabled = false
 button = "x2"
 
+[dictation]
+# A hotkey that types what you say into whatever window has focus, instead of
+# answering. Press it, say a sentence, and it's typed where your cursor is - no
+# model, no spoken reply. Same combo rules as [hotkey].
+enabled = true
+combo = "ctrl+alt+d"
+
 [files]
 # The only folders she may look inside - listing, finding, searching and
 # reading, never writing. Empty means she says she has nowhere to look rather

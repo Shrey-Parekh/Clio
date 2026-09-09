@@ -15,10 +15,13 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.timer import TimerCapability
-from clio.core.config import Config, ConfigError, HotkeyConfig, LocationConfig, MouseConfig
+from clio.core.config import (
+    Config, ConfigError, DictationConfig, HotkeyConfig, LocationConfig, MouseConfig,
+)
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
 from clio.input.mouse import MouseTrigger
+from clio.input.typing import type_text
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
@@ -105,6 +108,7 @@ class Orchestrator:
         location: LocationConfig | None = None,
         hotkey: HotkeyConfig | None = None,
         mouse: MouseConfig | None = None,
+        dictation: DictationConfig | None = None,
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
@@ -135,8 +139,10 @@ class Orchestrator:
         # the loop goes into a conversation; the source is just for the log.
         self._hotkey_config = hotkey
         self._mouse_config = mouse
+        self._dictation_config = dictation
         self._hotkey_listener: HotkeyListener | None = None
         self._mouse_trigger: MouseTrigger | None = None
+        self._dictation_listener: HotkeyListener | None = None
         self._triggered = False
         self._trigger_source = ""
         self._timers = TimerCapability(announce=self._announce)
@@ -199,7 +205,7 @@ class Orchestrator:
         try:
             await self._run_loop()
         finally:
-            for listener in (self._hotkey_listener, self._mouse_trigger):
+            for listener in (self._hotkey_listener, self._mouse_trigger, self._dictation_listener):
                 if listener is not None:
                     listener.stop()
 
@@ -227,12 +233,16 @@ class Orchestrator:
             log.info("Woke", extra={"extra_fields": {"trigger": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
-            await self._conversation_loop()
+            if phrase == "dictation":
+                await self._dictate_once()
+            else:
+                await self._conversation_loop()
 
     def _start_triggers(self) -> None:
         hotkey_on = self._hotkey_config is not None and self._hotkey_config.enabled
         mouse_on = self._mouse_config is not None and self._mouse_config.enabled
-        if not (hotkey_on or mouse_on):
+        dictation_on = self._dictation_config is not None and self._dictation_config.enabled
+        if not (hotkey_on or mouse_on or dictation_on):
             return
         loop = asyncio.get_running_loop()
         if hotkey_on:
@@ -246,6 +256,11 @@ class Orchestrator:
                 self._mouse_config.button, on_press=lambda: self._fire_trigger("mouse"), loop=loop
             )
             self._mouse_trigger = trigger if trigger.start() else None
+        if dictation_on:
+            listener = HotkeyListener(
+                self._dictation_config.combo, on_press=lambda: self._fire_trigger("dictation"), loop=loop
+            )
+            self._dictation_listener = listener if listener.start() else None
 
     def _fire_trigger(self, source: str) -> None:
         """Runs on the loop thread, scheduled from a listener thread. Kept to
@@ -253,6 +268,18 @@ class Orchestrator:
         self._triggered = True
         self._trigger_source = source
         self._announcement_ready.set()
+
+    async def _dictate_once(self) -> None:
+        """Capture one turn and type it into the focused window — dictation is
+        transcription, not conversation, so no model and no speech."""
+        turn_audio = await self._turn_detector.listen_for_turn(self._frames)
+        if turn_audio.size == 0:
+            return
+        text = await self._transcribe(turn_audio)
+        if not text:
+            return
+        typed = await asyncio.to_thread(type_text, text)
+        log.info("Dictated", extra={"extra_fields": {"chars": len(text), "typed": typed}})
 
     async def _warm_up_models(self) -> None:
         for label, engine in (("stt", self._stt), ("tts", self._speaker.engine)):
@@ -657,6 +684,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         location=config.location,
         hotkey=config.hotkey,
         mouse=config.mouse,
+        dictation=config.dictation,
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),

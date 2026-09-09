@@ -152,6 +152,15 @@ class MouseConfig:
 
 
 @dataclass(frozen=True)
+class DictationConfig:
+    """A hotkey that dictates into the focused window instead of answering.
+    Optional and defaulted, so a config predating it still starts."""
+
+    enabled: bool
+    combo: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -168,6 +177,7 @@ class Config:
     location: LocationConfig
     hotkey: HotkeyConfig
     mouse: MouseConfig
+    dictation: DictationConfig
     # Name -> path or URL, straight from TOML. A plain mapping, because a
     # dataclass around "whatever he decided to name his own things" would only
     # be a second place to edit every time he adds one.
@@ -320,6 +330,12 @@ def load_config(root: Path | None = None) -> Config:
             .strip().lower() in {"1", "true", "yes", "on"},
             button=_env_override("CLIO_MOUSE_BUTTON", str(mouse_raw.get("button", "x2"))),
         )
+        dictation_raw = raw.get("dictation", {})
+        dictation = DictationConfig(
+            enabled=_env_override("CLIO_DICTATION_ENABLED", str(dictation_raw.get("enabled", True)))
+            .strip().lower() in {"1", "true", "yes", "on"},
+            combo=_env_override("CLIO_DICTATION_COMBO", str(dictation_raw.get("combo", "ctrl+alt+d"))),
+        )
         # Same reason as [location]: optional, so a config predating it starts.
         shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
         file_roots = tuple(
@@ -345,6 +361,7 @@ def load_config(root: Path | None = None) -> Config:
         location=location,
         hotkey=hotkey,
         mouse=mouse,
+        dictation=dictation,
         shortcuts=shortcuts,
         file_roots=file_roots,
         runtime=runtime,
@@ -374,6 +391,12 @@ def _validate(config: Config) -> None:
             parse_button(config.mouse.button)
         except ValueError as exc:
             errors.append(f"mouse.button '{config.mouse.button}' is unusable: {exc}")
+    if config.dictation.enabled:
+        from clio.input.hotkey import parse_combo
+        try:
+            parse_combo(config.dictation.combo)
+        except ValueError as exc:
+            errors.append(f"dictation.combo '{config.dictation.combo}' is unusable: {exc}")
     if config.speech.tts_engine not in _VALID_TTS_ENGINES:
         errors.append(
             f"speech.tts_engine '{config.speech.tts_engine}' must be one of {sorted(_VALID_TTS_ENGINES)}"

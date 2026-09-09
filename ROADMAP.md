@@ -330,7 +330,10 @@
     - **No RegisterHotKey for the mouse**, so a low-level hook is genuinely required - the mouse equivalent of the keyboard hook 4.1 avoided. The callback is O(1) and passes every event through (`CallNextHookEx`), so the button still works normally; it fires Clio as well, it doesn't swallow the click.
     - **Gesture deferred, not skipped.** A button is the lazy, useful half of "button or gesture"; path-tracking gesture recognition is real work for marginal gain over a button. Noted in the module.
     - Button validated at config load; parser and the shared-trigger contract in `tests/test_mouse.py`, the hook verified live.
-  - [ ] **4.3** Dictation anywhere - you speak, it types into whatever has focus. High value and easy to underrate.
+  - [x] **4.3** Dictation anywhere - a hotkey (`ctrl+alt+d`) captures one turn and types the transcription into the focused window. `clio/input/typing.py` + `Orchestrator._dictate_once`.
+    - **SendInput with KEYEVENTF_UNICODE**, so it types by code unit into any app regardless of keyboard layout, no letter-to-VK mapping. Astral chars (emoji) go as UTF-16 surrogate pairs, which is what SendInput expects.
+    - **Transcription, not conversation**: no model call, no spoken reply. It reuses the normal VAD turn capture and STT, then types instead of routing to the LLM. A separate hotkey from the conversation trigger, so the two never collide.
+    - Reuses the 4.1 `HotkeyListener` and the shared trigger path (source "dictation" routes to `_dictate_once`). Combo validated at config load; `_utf16_units` and the dictate-and-type contract tested; the SendInput path verified live.
   - [ ] **4.4** Push-to-talk mode - hold to speak, as an alternative to VAD endpointing
 
   ---
