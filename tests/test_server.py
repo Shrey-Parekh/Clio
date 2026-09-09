@@ -53,10 +53,32 @@ async def main():
             message = json.loads(await asyncio.wait_for(client.recv(), timeout=2.0))
             assert "object at 0x" in message["payload"]["when"], message
         print("OK  an unserialisable payload value is stringified, not dropped")
-
-        print("\nAll server checks passed.")
     finally:
         await server.stop()
+
+    # --- a command from the frontend reaches the handler and gets a reply ---
+
+    seen = []
+
+    async def handler(command):
+        seen.append(command)
+        return {"facts": ["likes tea"]} if command.get("cmd") == "get_memory" else None
+
+    commanded = CoreServer(bus, port=0, command_handler=handler)
+    await commanded.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{commanded.port}") as client:
+            await asyncio.sleep(0.05)
+            await client.send(json.dumps({"cmd": "get_memory", "id": 7}))
+            reply = json.loads(await asyncio.wait_for(client.recv(), timeout=2.0))
+        assert seen and seen[0]["cmd"] == "get_memory", seen
+        assert reply["name"] == "clio.reply" and reply["req"] == 7, reply
+        assert reply["payload"]["facts"] == ["likes tea"], reply
+        print("OK  a command reaches the handler and its reply returns to the sender")
+    finally:
+        await commanded.stop()
+
+    print("\nAll server checks passed.")
 
 
 if __name__ == "__main__":

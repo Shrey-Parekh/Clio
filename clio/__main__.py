@@ -13,6 +13,32 @@ from clio.orchestrator import build_orchestrator
 from clio.speech.audio_input import AudioCapture
 
 
+def _command_handler(orchestrator, config):
+    """Maps a frontend command to a core action. Returns a reply payload for the
+    commands that ask for data (settings, memory), None for fire-and-forget."""
+
+    async def handle(command: dict):
+        cmd = command.get("cmd")
+        if cmd == "say":
+            await orchestrator.inject_text(str(command.get("text", "")))
+        elif cmd == "mute":
+            await orchestrator.set_muted(bool(command.get("on", True)))
+        elif cmd == "tts_speed":
+            orchestrator.set_tts_speed(float(command.get("value", 1.0)))
+        elif cmd == "add_fact":
+            return {"added": orchestrator.add_fact(str(command.get("text", "")))}
+        elif cmd == "get_memory":
+            return {"facts": orchestrator.facts()}
+        elif cmd == "get_settings":
+            return {"persona": config.persona.name,
+                    "wake_phrases": list(config.wake_word.phrases),
+                    "voice": config.speech.tts_voice,
+                    **orchestrator.settings()}
+        return None
+
+    return handle
+
+
 async def _run(config) -> int:
     log = get_logger("clio.startup")
     bus = EventBus()
@@ -52,9 +78,13 @@ async def _run(config) -> int:
     log.info("Clio is running. Press Ctrl+C to stop.")
     exit_code = 0
 
+    orchestrator = build_orchestrator(config, bus)
+
     # The frontend's window onto the core. A bind failure (port taken) must not
     # stop the voice loop, so it is logged and Clio runs on without a frontend.
-    server = CoreServer(bus, config.runtime.core_port)
+    server = CoreServer(
+        bus, config.runtime.core_port, command_handler=_command_handler(orchestrator, config)
+    )
     try:
         await server.start()
     except Exception:
@@ -62,7 +92,6 @@ async def _run(config) -> int:
         server = None
 
     try:
-        orchestrator = build_orchestrator(config, bus)
         capture = AudioCapture(device=config.audio.input_device_arg())
         run_task = asyncio.ensure_future(orchestrator.run(capture))
         while running and not run_task.done():

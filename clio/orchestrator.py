@@ -154,6 +154,7 @@ class Orchestrator:
         self._ptt_down = False
         self._triggered = False
         self._trigger_source = ""
+        self._muted = False
         self._timers = TimerCapability(announce=self._announce)
         self._policy = PermissionPolicy()
         self._router = IntentRouter(self._policy)
@@ -236,6 +237,11 @@ class Orchestrator:
                 else:
                     continue
 
+            if self._muted:
+                # Woken while muted: acknowledge nothing, go back to waiting.
+                self._announcement_ready.clear()
+                continue
+
             # Before STT or the model runs, so the trigger is acknowledged
             # while the slow work happens.
             play_wake_cue()
@@ -286,9 +292,67 @@ class Orchestrator:
     def _fire_trigger(self, source: str) -> None:
         """Runs on the loop thread, scheduled from a listener thread. Kept to
         flag writes: the wake wait notices the interrupt on its next frame."""
+        if self._muted:
+            return
         self._triggered = True
         self._trigger_source = source
         self._announcement_ready.set()
+
+    # --- frontend command surface (5.2/5.4/5.5) ---
+
+    @property
+    def muted(self) -> bool:
+        return self._muted
+
+    async def set_muted(self, on: bool) -> None:
+        """Muted: wake word and triggers are ignored until unmuted."""
+        self._muted = bool(on)
+        log.info("Mute toggled", extra={"extra_fields": {"muted": self._muted}})
+        await self._emit("clio.state", {"state": "muted" if self._muted else "idle"})
+
+    async def inject_text(self, text: str) -> str:
+        """Answer a typed message from the chat window. Text in, text out: no
+        speech, to avoid a second reader on the microphone stream while the
+        voice loop owns it. Returns the reply for the window to show."""
+        text = text.strip()
+        if not text:
+            return ""
+        await self._emit("clio.transcript", {"role": "user", "text": text})
+        await self._emit("clio.state", {"state": "thinking"})
+        self._memory.add_user(text)
+        self._record(role="user", content=text)
+        reply, _ = await self._handle_utterance(text)
+        reply = reply or ""
+        if reply:
+            self._memory.add_assistant(reply)
+            self._record(role="assistant", content=reply)
+            await self._emit("clio.transcript", {"role": "assistant", "text": reply})
+        await self._emit("clio.state", {"state": "idle"})
+        return reply
+
+    def facts(self) -> list[str]:
+        return self._store.facts() if self._store is not None else []
+
+    def add_fact(self, text: str) -> bool:
+        return bool(self._store is not None and self._store.add_fact(text, category="Notes"))
+
+    def settings(self) -> dict:
+        """A snapshot for the settings panel. Live-changeable keys are muted and
+        tts_speed; the rest are read-only until the config file changes."""
+        return {
+            "muted": self._muted,
+            "tts_speed": getattr(self._speaker.engine, "speed", None),
+            "capabilities": [
+                {"name": c.name, "permission": c.permission.value, "offline": c.offline}
+                for c in self._router.capabilities()
+            ],
+            "permissions": self._policy.summary(),
+        }
+
+    def set_tts_speed(self, speed: float) -> None:
+        engine = self._speaker.engine
+        if hasattr(engine, "speed"):
+            engine.speed = max(0.7, min(1.5, float(speed)))
 
     async def _emit(self, name: str, payload: dict | None = None) -> None:
         """Publish a frontend event, if a bus is wired. State and transcript go
