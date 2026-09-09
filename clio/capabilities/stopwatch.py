@@ -1,9 +1,5 @@
-"""A stopwatch, which is the other half of timers.
-
-A timer counts down to something he already knows the length of. A stopwatch
-answers "how long did that actually take", which is the question worth asking
-about work. One running at a time - "the stopwatch" has to mean something.
-"""
+"""A stopwatch — "how long did that take". One running at a time, so "the
+stopwatch" is unambiguous."""
 
 from __future__ import annotations
 
@@ -33,8 +29,8 @@ def parse_stopwatch_command(text: str) -> str | None:
 
 
 class Stopwatch:
-    """Monotonic, not wall clock: a clock change or a daylight saving jump must
-    not turn a five minute measurement into an hour."""
+    """Monotonic, not wall clock — a clock change mustn't distort the elapsed
+    measurement."""
 
     def __init__(self) -> None:
         self._started_at: float | None = None
@@ -49,8 +45,7 @@ class Stopwatch:
     def handle(self, command: str) -> str:
         if command == "start":
             if self.running:
-                # Restarting silently would throw away a measurement he may
-                # have been in the middle of.
+                # Don't restart silently — that discards a running measurement.
                 return f"Already running, {format_duration(self.elapsed_s())} so far."
             self._started_at = time.monotonic()
             return "Right, the stopwatch is running."

@@ -1,9 +1,8 @@
-"""Current conditions, from Open-Meteo - no API key, no account.
+"""Current conditions from Open-Meteo — no API key, no account.
 
-Nothing is requested until a location is configured. Coordinates are the one
-piece of genuinely personal data these utilities would send anywhere, so it is
-opt-in by editing the config rather than guessed from the IP address, and
-saying "I don't know where you are" is the honest answer until then.
+Nothing is requested until a location is configured: coordinates are the one
+genuinely personal thing these utilities send out, so it's opt-in by config
+rather than guessed from the IP.
 """
 
 from __future__ import annotations

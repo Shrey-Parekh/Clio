@@ -1,9 +1,7 @@
-"""Coins, dice, a number, or picking between things he can't decide on.
+"""Coins, dice, a number, or picking between options.
 
-Small, but it is the one thing an assistant gets asked that a language model
-answers badly: ask a model for a random number and it says 7, nearly every
-time, because that is what people pick in its training data. This is on the
-deterministic path precisely so the answer is actually random.
+On the deterministic path on purpose: ask a model for a random number and it
+says 7 nearly every time, because that's what people pick.
 """
 
 from __future__ import annotations
@@ -23,9 +21,8 @@ _WORD_COUNTS = {"a": 1, "an": 1, "two": 2, "three": 3}
 _MAX_DICE = 10
 _MAX_SIDES = 100
 
-# "pick between tea and coffee" splits on these - "and" included, because it
-# is how the choice is usually said out loud. Anything that does not split
-# into at least two options is not a request to choose.
+# Split "tea and coffee" / "tea or coffee" into options. "and" included since
+# it's how a choice is usually spoken.
 _SPLIT = re.compile(r"\s+or\s+|\s+and\s+|\s*,\s*")
 
 
@@ -62,9 +59,8 @@ def parse_chance_request(text: str) -> tuple[str, tuple] | None:
 def decide(kind: str, args: tuple, rng: random.Random | None = None) -> str:
     rng = rng or random.SystemRandom()
 
-    # Spoken answers, not printed ones. A bare "Tails." is technically the
-    # whole answer and lands like a machine reading out a register - the
-    # sentence around it is what makes it sound like someone answering.
+    # Spoken answers: a bare "Tails." reads like a register dump; the sentence
+    # around it makes it sound like someone answering.
     if kind == "coin":
         return f"The coin came up {rng.choice(('heads', 'tails'))}."
 
@@ -77,8 +73,7 @@ def decide(kind: str, args: tuple, rng: random.Random | None = None) -> str:
         rolls = [rng.randint(1, sides) for _ in range(count)]
         if count == 1:
             return f"That's a {rolls[0]} on the dice."
-        # "5, 2, 7 altogether" sounds like three dice. The last "and" is what
-        # separates the rolls from the total when it is heard rather than read.
+        # The last "and" separates the rolls from the total when heard, not read.
         spoken = f"{', '.join(str(r) for r in rolls[:-1])} and {rolls[-1]}"
         return f"You rolled {spoken}, {sum(rolls)} altogether."
 
