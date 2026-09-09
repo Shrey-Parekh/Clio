@@ -1,9 +1,4 @@
-"""The actual voice loop: wake word, turn capture, STT, the deterministic
-timer fast path or LLM conversation, and speech - with barge-in and
-conversation mode threaded through. Every piece up to 1.12 was built and
-verified independently; this is where they become one running loop instead
-of separate modules.
-"""
+
 
 from __future__ import annotations
 
@@ -14,31 +9,12 @@ from pathlib import Path
 
 import numpy as np
 
-from clio.capabilities.assistant import (
-    adjust_speed, describe_capabilities, parse_help_request, parse_voice_request,
-)
-from clio.capabilities.calculate import format_number, parse_calculation
-from clio.capabilities.chance import decide, parse_chance_request
-from clio.capabilities.clipboard import Clipboard, parse_clipboard_request
-from clio.capabilities.clock import answer as clock_answer, parse_clock_request
-from clio.capabilities.control import (
-    apply as apply_control, describe_action, parse_close, parse_control, parse_media, parse_power,
-)
-from clio.capabilities.convert import format_conversion, parse_conversion
+from clio.capabilities.clipboard import Clipboard
 from clio.capabilities.correction import parse_correction
-from clio.capabilities.currency import convert_currency, parse_currency_request
-from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
-from clio.capabilities.files import look_up, parse_file_request
-from clio.capabilities.launch import open_target, resolve as resolve_target
-from clio.capabilities.network import describe_network, parse_network_request
-from clio.capabilities.notes import NoteBook, parse_note_request
-from clio.capabilities.repeat import is_repeat_command
-from clio.capabilities.status import is_status_query
-from clio.capabilities.stop import is_stop_command
-from clio.capabilities.stopwatch import Stopwatch, parse_stopwatch_command
-from clio.capabilities.system import describe_system, parse_system_query
-from clio.capabilities.timer import TimerCapability, parse_timer_command, parse_timer_control
-from clio.capabilities.weather import describe_weather, is_weather_query
+from clio.capabilities.notes import NoteBook
+from clio.capabilities.registry import register_capabilities
+from clio.capabilities.stopwatch import Stopwatch
+from clio.capabilities.timer import TimerCapability
 from clio.core.config import Config, ConfigError, HotkeyConfig, LocationConfig
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
@@ -72,17 +48,6 @@ async def wait_for_wake_word(
     frames: AsyncIterator[np.ndarray],
     interrupt: asyncio.Event | None = None,
 ) -> str | None:
-    """Consumes VAD-shaped frames (512 float32 samples each) from the live mic
-    stream, re-buffered into the larger int16 chunks WakeWordDetector needs,
-    until a configured phrase triggers. Returns the triggered phrase, or None
-    if `interrupt` was set (something else - a fired timer - needs the stream).
-
-    Exits by returning, not by cancelling a task - cancelling a task mid-
-    `async for` on a shared generator closes it (the bug found while building
-    1.11). Only this function's own re-buffering leftover (under 80ms) is
-    discarded on trigger; `frames` itself keeps its exact position, so turn
-    capture can keep reading from it immediately after.
-    """
     buffer = np.zeros(0, dtype=np.float32)
     # Twice now she has gone quiet with "Listening for the wake word" as the
     # last line in the log, which is indistinguishable between a dead mic
@@ -279,12 +244,6 @@ class Orchestrator:
         self._announcement_ready.set()
 
     async def _warm_up_models(self) -> None:
-        """Load STT and TTS in the background at startup.
-
-        Both are lazy by design to keep the idle footprint down, but paying for
-        both on the first request is several seconds of dead air. Set
-        memory.prewarm = false to trade responsiveness for a lighter idle GPU.
-        """
         for label, engine in (("stt", self._stt), ("tts", self._speaker.engine)):
             try:
                 await engine.warm_up()
@@ -508,213 +467,8 @@ class Orchestrator:
         return granted
 
     def _register_intents(self) -> None:
-        """Everything registered here is handled without an API call.
-
-        Stop is registered first: it is the narrowest match, and the phrases
-        used to interrupt her must never be treated as a new request.
-        """
-
-        async def stop(_payload: object) -> None:
-            return None
-
-        async def start_timer(payload: object) -> str:
-            return self._timers.start(float(payload))
-
-        async def repeat(_payload: object) -> str | None:
-            if not self._last_plan:
-                return "You haven't asked me to do anything yet."
-            log.info(
-                "Repeating",
-                extra={"extra_fields": {"steps": [m.intent for m in self._last_plan]}},
-            )
-            # Back through the gate, not straight to run(): a confirm-tier action
-            # must ask again every time, including when it is being repeated.
-            return await self._run_plan(self._last_plan)
-
-        async def diagnose(_payload: object) -> str:
-            return explain_failure(self._last_failure)
-
-        async def weather(_payload: object) -> str:
-            return await describe_weather(self._location)
-
-        async def currency(payload: object) -> str:
-            amount, source, target = payload  # type: ignore[misc]
-            return await convert_currency(amount, source, target)
-
-        async def convert_units(payload: object) -> str:
-            value, source, target = payload  # type: ignore[misc]
-            return format_conversion(value, source, target)
-
-        async def notes(payload: object) -> str:
-            request = payload  # type: ignore[assignment]
-            if request.kind == "read":
-                return self._notes.recent()
-            content = request.content
-            if not content:
-                # "Note that down" on its own means the thing she just said -
-                # which is nearly always why he wants it written down.
-                content = next(
-                    (m["content"] for m in reversed(self._memory.get_messages())
-                     if m["role"] == "assistant"),
-                    "",
-                )
-                if not content:
-                    return "Note what down? Nothing's been said yet."
-            return self._notes.add(content)
-
-        async def clipboard(payload: object) -> str:
-            request = payload  # type: ignore[assignment]
-            if request.kind == "read":
-                return self._clipboard.read()
-            if request.kind == "restore":
-                return self._clipboard.restore()
-
-            original, refusal, sensitive = self._clipboard.take()
-            if refusal:
-                return refusal
-
-            # A key or a password is done on this machine or not at all. The
-            # local model is asked for by name rather than inferred from
-            # `using_fallback`, which only records what answered last - every
-            # call tries the cloud first, so inferring would send it anyway.
-            provider = self._llm
-            if sensitive:
-                provider = getattr(self._llm, "local", None)
-                if provider is None:
-                    return ("That looks like a password or a key, and I've got no local model "
-                            "to do it with, so I'm not sending it anywhere.")
-                log.info("Clipboard transform kept local", extra={"extra_fields": {"reason": "secret"}})
-
-            self._intent_used_llm = True
-            result = await provider.complete(
-                [
-                    {"role": "system", "content":
-                        "You rewrite text. Return only the rewritten text - no preamble, no "
-                        "explanation, no quotes around it. If the instruction does not apply, "
-                        "return the text unchanged."},
-                    {"role": "user", "content":
-                        f"{request.instruction}\n\n---\n{original}"},
-                ],
-                tier="default",
-            )
-            spoken = self._clipboard.replace(original, result.strip())
-            # Said out loud, because "which model saw my API key" is not a
-            # question he should have to go and read a log to answer.
-            return f"{spoken} Did that one locally, it looked like a key." if sensitive else spoken
-
-        async def clock(payload: object) -> str:
-            kind, value = payload  # type: ignore[misc]
-            return clock_answer(kind, value)
-
-        async def chance(payload: object) -> str:
-            kind, args = payload  # type: ignore[misc]
-            return decide(kind, args)
-
-        async def stopwatch(payload: object) -> str:
-            return self._stopwatch.handle(str(payload))
-
-        async def timer_control(payload: object) -> str:
-            return self._timers.cancel_all() if payload == "cancel" else self._timers.remaining()
-
-        async def network(payload: object) -> str:
-            return await describe_network(str(payload))
-
-        async def help_me(_payload: object) -> str:
-            return describe_capabilities(self._router.capabilities())
-
-        async def voice(payload: object) -> str:
-            return adjust_speed(self._speaker, str(payload))
-
-        async def files(payload: object) -> str:
-            spoken, to_summarise = await look_up(payload, self._file_roots)  # type: ignore[arg-type]
-            if not to_summarise:
-                return spoken
-            # The only capability that reaches the model, and it says so, so
-            # the turn is accounted for honestly rather than counted as free.
-            self._intent_used_llm = True
-            return await self._llm.complete(
-                [
-                    {"role": "system", "content": self._persona_system_prompt},
-                    {"role": "user", "content":
-                        "Say what this file is and what's in it, out loud, in three sentences "
-                        f"at most. No lists, no code, no file paths.\n\n{to_summarise}"},
-                ],
-                tier="default",
-            )
-
-        async def control(payload: object) -> str:
-            return await apply_control(payload)  # type: ignore[arg-type]
-
-        async def open_thing(payload: object) -> str:
-            return open_target(payload)  # type: ignore[arg-type]
-
-        async def system(payload: object) -> str:
-            return await describe_system(str(payload))
-
-        async def calculate(payload: object) -> str:
-            return f"That works out to {format_number(float(payload))}."  # type: ignore[arg-type]
-
-        async def status(_payload: object) -> str:
-            # Asked from the registry, not hardcoded: a capability that needs
-            # the network must not be listed as working without one.
-            offline_ready = ", ".join(
-                c.name for c in self._router.capabilities() if c.offline and c.name != "status"
-            )
-            state = getattr(self._llm, "using_fallback", None)
-            if state is None:
-                head = "Haven't needed the cloud model yet this session."
-            elif state:
-                head = "Running on the local model, the cloud one is unreachable."
-            else:
-                head = "Cloud model is up."
-            tracker = getattr(self._llm, "usage", None)
-            spend = tracker.summary() if tracker is not None else ""
-            return (
-                f"{head} Speech, memory and {offline_ready} all work with no network at all. {spend}"
-            ).strip()
-
-        self._router.register("repeat", lambda t: True if is_repeat_command(t) else None, repeat)
-        self._router.register("diagnose", lambda t: True if is_diagnosis_query(t) else None, diagnose)
-        self._router.register("status", lambda t: True if is_status_query(t) else None, status)
-        self._router.register("stop", lambda t: True if is_stop_command(t) else None, stop)
-        # Control before start, so "cancel the five minute timer" is not
-        # heard as a request for a new one.
-        self._router.register("timer_control", parse_timer_control, timer_control)
-        self._router.register("timer", parse_timer_command, start_timer)
-        self._router.register("stopwatch", parse_stopwatch_command, stopwatch)
-        self._router.register("clock", parse_clock_request, clock)
-        self._router.register("network", parse_network_request, network)
-        self._router.register("help", parse_help_request, help_me)
-        self._router.register("voice", parse_voice_request, voice)
-        self._router.register("chance", parse_chance_request, chance)
-        self._router.register("clipboard", parse_clipboard_request, clipboard)
-        # Before files: "read my notes" is not a request to read a file called notes.
-        self._router.register("notes", parse_note_request, notes)
-        # Currency before units: both say "convert X to Y", and only the
-        # currency matcher knows a rupee is not a unit of length.
-        self._router.register(
-            "weather", lambda t: True if is_weather_query(t) else None, weather, offline=False
-        )
-        self._router.register("currency", parse_currency_request, currency, offline=False)
-        self._router.register("system", parse_system_query, system)
-        # Two intents over one module, because they are not the same risk: the
-        # describer is what the confirmation actually reads out.
-        self._router.register("power", parse_power, control, describe=describe_action)
-        self._router.register("close", parse_close, control, describe=describe_action)
-        # Media before control: "stop the music" must not be read as a window
-        # command, and "pause" must not be read as anything else at all.
-        self._router.register("media", parse_media, control)
-        self._router.register("control", parse_control, control, describe=describe_action)
-        self._router.register(
-            "files", lambda t: parse_file_request(t, self._file_roots), files
-        )
-        self._router.register("convert", parse_conversion, convert_units)
-        self._router.register("calculate", parse_calculation, calculate)
-        # Last: its verbs are the broadest here, so every narrower matcher -
-        # "start a timer" above all - gets the utterance first.
-        self._router.register(
-            "open", lambda t: resolve_target(t, self._shortcuts), open_thing
-        )
+        """Wire every deterministic (no-API) intent onto the router."""
+        register_capabilities(self)
 
     async def _remember_failure(self, event: Event) -> None:
         self._last_failure = {**event.payload, "at": event.timestamp}
