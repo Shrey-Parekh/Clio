@@ -1,17 +1,8 @@
-"""What this machine is doing right now - CPU, memory, disk, GPU, and what is
-eating them.
+"""What the machine is doing now — CPU, memory, disk, GPU, and what's eating them.
 
-Everything here is read locally and read-only. No network, no API call, and
-nothing that changes the machine, so it stays FREE.
-
-Two things are deliberately absent rather than guessed at:
-
-- CPU temperature. `psutil.sensors_temperatures` does not exist on Windows, and
-  the WMI thermal zone is usually empty, needs admin, and often reports a
-  chipset sensor rather than the die. A fabricated number here is worse than
-  none, so temperature means the GPU, which nvidia-smi reports honestly.
-- Anything cached. These are readings, and a stale reading spoken confidently
-  is the same failure mode as a stale exchange rate.
+Read-only and local, so FREE. Two deliberate absences: CPU temperature (Windows
+doesn't expose it without a driver, so "temperature" means the GPU), and any
+caching (a stale reading spoken confidently is the same failure as a stale rate).
 """
 
 from __future__ import annotations
@@ -24,9 +15,8 @@ import time
 
 import psutil
 
-# psutil needs two samples to say anything true about CPU load; the first call
-# always reads zero. One window, shared by the whole snapshot, so a question
-# costs 0.3s once rather than once per number.
+# psutil needs two samples for CPU load (the first reads zero). One shared
+# window per snapshot, so a question costs 0.3s once, not once per number.
 _SAMPLE_S = 0.3
 _TOP_N = 3
 _NVIDIA_TIMEOUT_S = 4.0
@@ -58,15 +48,13 @@ _FRIENDLY = {
     "steam.exe": "Steam", "MemCompression": "Windows memory compression",
 }
 
-# The idle process is the machine doing nothing. Reported as the top consumer
-# it inverts the answer, which is exactly what the first live run said.
+# The idle process is the machine doing nothing — reported as top consumer it
+# would invert the answer.
 _NOT_A_HOG = {"System Idle Process", "Idle"}
 
 
 def parse_system_query(text: str) -> str | None:
-    """Returns the topic asked about, or None so it falls through to
-    conversation rather than being guessed at - the same contract as timers.
-    """
+    """The topic asked about, or None to fall through to conversation."""
     lowered = " ".join(text.lower().split())
     for name, pattern in _COMPILED:
         if pattern.search(lowered):
@@ -110,9 +98,8 @@ def read_gpu() -> dict | None:
 
 
 def _top_processes(sample_s: float) -> list[tuple[str, float, float]]:
-    """The first cpu_percent() call on a process is always 0.0, so every
-    process is primed, then read after one shared window.
-    """
+    """First cpu_percent() per process reads 0.0, so prime all, then read after
+    one shared window."""
     procs = []
     for proc in psutil.process_iter(["name"]):
         if proc.info["name"] in _NOT_A_HOG or proc.pid == 0:
@@ -140,9 +127,7 @@ def _top_processes(sample_s: float) -> list[tuple[str, float, float]]:
 
 
 def snapshot(sample_s: float = _SAMPLE_S) -> dict:
-    """One blocking read of everything. Blocking is why the caller runs it on a
-    thread: the loop it would stall is the one carrying the microphone.
-    """
+    """One blocking read of everything — the caller runs it on a thread."""
     top = _top_processes(sample_s)
     memory = psutil.virtual_memory()
     disk = shutil.disk_usage("/")
@@ -170,8 +155,7 @@ def _describe_uptime(seconds: float) -> str:
 
 
 def describe(topic: str, reading: dict) -> str:
-    """Spoken, so one or two facts per topic. A full readout of every number is
-    unlistenable, and he asked one question."""
+    """Spoken, so one or two facts per topic — a full readout is unlistenable."""
     gpu = reading["gpu"]
 
     if topic == "cpu":

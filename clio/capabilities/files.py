@@ -1,21 +1,9 @@
-"""Looking around his own files, and never changing one.
+"""Read-only lookups over the user's own files — never writes, so FREE.
 
-Read-only on purpose. Nothing here writes, moves or deletes, so the whole
-module is FREE - the worst it can do is say something out loud. When writing
-does arrive it goes through the CONFIRM path 3.5 now exercises, and it will be
-a separate intent for exactly the reason `power` is separate from `control`.
-
-Two bounds do most of the safety work:
-
-- It only looks under configured roots. Not the whole drive, not the whole
-  user profile.
-- It never resolves a path out of the utterance, same rule as launching. Names
-  are matched against what the walk found; "read C colon backslash..." is not a
-  sentence that reaches the disk.
-
-And one bound does the performance work: there are 46,000 files under Documents
-on this machine, so reading their contents is bounded by a deadline rather than
-run to completion. Saying "I got through this much" beats a ten-second silence.
+Bounded to configured roots (not the whole drive), and never resolves a path
+out of the utterance (names are matched against the walk, same rule as
+launching). Content search is deadline-bounded, since there can be tens of
+thousands of files: "I got through this much" beats a ten-second silence.
 """
 
 from __future__ import annotations
@@ -31,9 +19,7 @@ from clio.core.logging import get_logger
 
 log = get_logger("clio.files")
 
-# Text she could plausibly be asked about. Anything else is found by name but
-# never opened - reading a binary aloud is noise, and pulling a 300MB video
-# into memory to fail at it is worse.
+# Readable text. Anything else is found by name but never opened.
 _TEXT = {
     ".txt", ".md", ".py", ".json", ".toml", ".yaml", ".yml", ".csv", ".log",
     ".ini", ".cfg", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sql", ".sh", ".rst",
@@ -71,8 +57,7 @@ _PATTERNS: list[tuple[str, str]] = [
 _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]
 _STRIP = re.compile(r"[.!?,;:]+$")
 
-# A path spoken into the request is never resolved. Same reasoning as launching
-# and as the arithmetic parser: the transcriber will produce one eventually.
+# A spoken path is never resolved — the transcriber will produce one eventually.
 _LOOKS_LIKE_PATH = re.compile(r"[/\\]|\.\.|^[a-z] colon\b|^[a-z]:")
 
 
@@ -85,14 +70,12 @@ _index_cache: tuple[float, tuple[Path, ...]] = (0.0, ())
 
 
 def _index(roots: tuple[Path, ...]) -> tuple[Path, ...]:
-    """Every path under the roots, rebuilt at most once a minute.
+    """Every path under the roots, rebuilt at most once a minute. The matcher
+    needs it: a name matching nothing must fall through to conversation, which
+    it can only know by looking.
 
-    Built here rather than at lookup time because the *matcher* needs it: a
-    name that matches nothing has to fall through to conversation, and it can
-    only know that by looking. "Read me a poem" is not a failed file request.
-
-    ponytail: one global cache keyed on nothing, because the roots come from
-    config and do not change within a run. Key it if they ever become dynamic.
+    ponytail: one global cache keyed on nothing — roots come from config and
+    don't change within a run. Key it if they ever become dynamic.
     """
     global _index_cache
     age, cached = _index_cache
@@ -119,8 +102,8 @@ def parse_file_request(text: str, roots: tuple[Path, ...] = ()) -> Request | Non
         if kind == "search":
             return Request(kind=kind, value=value)
         if not roots:
-            # Nothing configured: still claim it, so she can say she has
-            # nowhere to look rather than improvising an answer.
+            # Nothing configured: still claim it, so she says she has nowhere
+            # to look rather than improvising.
             return Request(kind=kind, value=value)
 
         everything = _index(roots)
@@ -129,14 +112,13 @@ def parse_file_request(text: str, roots: tuple[Path, ...] = ()) -> Request | Non
             return None if folder is None else Request(kind, value, (folder,))
 
         matches = _by_name(value, everything)
-        # The heart of it: an unmatched name is not a file request at all.
+        # An unmatched name is not a file request at all.
         return Request(kind, value, matches) if matches else None
     return None
 
 
 def _walk(roots: list[Path], deadline: float | None = None):
-    """Bounded walk. Hidden directories and build output are skipped, because
-    he has never once wanted to hear about `node_modules`."""
+    """Bounded walk, skipping hidden dirs and build output (node_modules etc.)."""
     for root in roots:
         if not root.is_dir():
             continue
@@ -149,9 +131,7 @@ def _walk(roots: list[Path], deadline: float | None = None):
 
 
 def _where(path: Path) -> str:
-    """The containing folder, not the path. Everything here is spoken, and a
-    full path read aloud is unusable - he wants to know which folder to look in.
-    """
+    """The containing folder, not the full path — a path read aloud is unusable."""
     return path.parent.name or str(path.parent)
 
 
@@ -162,8 +142,7 @@ def _spoken_name(path: Path) -> str:
 def _by_name(query: str, everything: tuple[Path, ...]) -> tuple[Path, ...]:
     words = query.split()
     hits = [p for p in everything if all(w in p.stem.lower() for w in words)]
-    # Most recently touched first: the file he means is almost always the one
-    # he was just working on.
+    # Most recently touched first — usually the one meant.
     hits.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
     return tuple(hits[:20])
 
@@ -215,12 +194,9 @@ def _list_folder(root: Path) -> str:
 
 
 def lookup(request: Request, roots: tuple[Path, ...]) -> tuple[str, str]:
-    """Returns what to say, and the file text when there is something to
-    summarise. Blocking - the caller runs it on a thread.
-
-    Names are already resolved: the matcher had to look them up to know this
-    was a file request at all, so `request.matches` is what it found.
-    """
+    """Returns what to say, plus the file text when there's something to
+    summarise. Blocking — the caller runs it on a thread. Names are already
+    resolved in `request.matches` (the matcher looked them up)."""
     if not roots:
         return ("I don't have anywhere to look yet. Add the folders you want me to see "
                 "under files in the config, and I'll stay inside them.", "")
