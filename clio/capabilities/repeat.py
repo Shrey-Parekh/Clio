@@ -1,10 +1,5 @@
-"""Deterministic match for "do that again".
-
-References inside conversation ("the second one") already resolve, because the
-recent turns sit verbatim in the prompt and the model reads them. An action
-handled by the router never reached the model, so repeating one needs the
-router to remember what it last did.
-"""
+"""Deterministic match for "do that again" — a router action never reached the
+model, so repeating one needs the router to remember its last plan."""
 
 from __future__ import annotations
 

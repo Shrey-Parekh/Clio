@@ -1,11 +1,9 @@
-"""Putting CUDA's DLLs where Windows can actually find them.
+"""Put CUDA's DLLs where Windows can find them, for CTranslate2 (STT) and ONNX
+Runtime (TTS).
 
-Two different libraries need this and neither can do it for itself:
-faster-whisper's CTranslate2 backend (STT) and ONNX Runtime's CUDA provider
-(Kokoro TTS). The pip packages that ship the DLLs - nvidia-cublas-cu12,
-nvidia-cudnn-cu12 - don't put them on the search path, and lazy CUDA init deep
-inside compiled code doesn't respect os.add_dll_directory. Only a plain PATH
-prepend works, and it has to happen before the first session is created.
+The nvidia-*-cu12 pip packages ship the DLLs but don't add them to the search
+path, and lazy CUDA init inside compiled code ignores os.add_dll_directory — only
+a PATH prepend works, and it must happen before the first session is created.
 """
 
 from __future__ import annotations
@@ -22,8 +20,8 @@ _registered = False
 
 
 def ensure_cuda_dlls_on_path() -> None:
-    """No-op outside Windows, if the packages aren't installed (CPU-only
-    setups), or if already applied - safe to call from every lazy loader."""
+    """No-op off Windows, without the packages (CPU-only), or once applied —
+    safe to call from every lazy loader."""
     global _registered
     if _registered or sys.platform != "win32":
         return

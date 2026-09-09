@@ -1,8 +1,4 @@
-"""Deterministic match for "stop talking", so it never reaches the LLM.
-
-Sending it to the model produces a reply, which is the opposite of what was
-asked for. Same fast-path rule as timers: no API call.
-"""
+"""Deterministic match for "stop talking", so it never reaches the LLM."""
 
 from __future__ import annotations
 
@@ -19,8 +15,7 @@ _STRIP_PUNCT = re.compile(r"[.!?,;:]+$")
 
 
 def is_stop_command(text: str) -> bool:
-    """True only if the whole utterance is a stop phrase. Substring matching
-    would swallow real commands like "stop the timer".
-    """
+    """True only if the whole utterance is a stop phrase — substring matching
+    would swallow "stop the timer"."""
     normalized = _STRIP_PUNCT.sub("", text.strip().lower())
     return normalized in _STOP_PHRASES

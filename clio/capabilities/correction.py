@@ -1,14 +1,4 @@
-"""Deterministic detection of "no, not like that".
-
-A correction is kept in his own words and scoped to nothing wider than what he
-actually said. Inferring a broader rule than the correction it came from makes
-it misfire in situations he never spoke about, and facts.md is permanent - so
-the whole utterance is stored verbatim and nothing is generalised from it.
-
-Markers are anchored at the start. "No" in the middle of a sentence is usually
-part of an answer rather than a correction of one, and a false positive here
-writes a standing rule that survives every later session.
-"""
+"""Detect "no, not like that" and keep it as a standing rule, verbatim."""
 
 from __future__ import annotations
 
@@ -24,15 +14,16 @@ _MARKERS = (
     r"remember(?:\s+that)?,?\s+",
 )
 
+# Anchored at the start: a mid-sentence "no" is usually part of an answer, and a
+# false positive here writes a rule that outlives every later session.
 _CORRECTION = re.compile(r"^(?:" + "|".join(_MARKERS) + r")", re.IGNORECASE)
 
-# A marker on its own ("next time") states no rule worth keeping.
+# A bare marker ("next time") states no rule worth keeping.
 _MIN_WORDS = 4
 
 
 def parse_correction(text: str) -> str | None:
-    """Returns the standing rule - the utterance verbatim - or None if this
-    wasn't a correction."""
+    """The utterance verbatim as a standing rule, or None if it wasn't a correction."""
     cleaned = " ".join(text.split())
     if len(cleaned.split()) < _MIN_WORDS or not _CORRECTION.match(cleaned):
         return None

@@ -1,9 +1,5 @@
-"""Conversation mode: after Clio answers, she keeps listening for a bounded
-window so a follow-up doesn't need the wake word again. A thin wrapper over
-BargeInSpeaker's listen_after_s - a follow-up said mid-response is still
-barge-in; this names and configures the extra listening window that applies
-once a response finishes cleanly.
-"""
+"""Conversation mode: keep listening for a bounded window after answering, so a
+follow-up doesn't need the wake word again."""
 
 from __future__ import annotations
 
@@ -23,16 +19,10 @@ class ConversationSession:
         self._follow_up_window_s = follow_up_window_s
 
     async def respond(self, text: str, frames: AsyncIterator[np.ndarray]) -> SpeechOutcome:
-        """Speak `text` (with barge-in throughout), then keep listening for a
-        bounded follow-up window. The returned outcome carries the next turn's
-        audio if the user said anything - whether by barging in mid-response or
-        following up within the window - or None for `next_turn` if the window
-        elapsed with nothing said, meaning conversation mode ends and the wake
-        word is needed again.
-        """
+        """Speak `text` (barge-in throughout), then listen for a follow-up window.
+        `outcome.next_turn` carries the next turn's audio, or is None if the window
+        elapsed silently and the wake word is needed again."""
         outcome = await self._speaker.speak(text, frames, listen_after_s=self._follow_up_window_s)
-        if outcome.next_turn is None:
-            log.info("Conversation mode: no follow-up, wake word required again")
-        else:
-            log.info("Conversation mode: continuing without wake word")
+        log.info("Conversation mode: %s",
+                 "no follow-up" if outcome.next_turn is None else "continuing")
         return outcome

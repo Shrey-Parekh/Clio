@@ -1,6 +1,5 @@
-"""Deterministic match for "what still works". Answering a connectivity
-question by calling the network would be self-defeating, so this never does.
-"""
+"""Deterministic match for "what still works" — answering a connectivity
+question by calling the network would be self-defeating, so it never does."""
 
 from __future__ import annotations
 
