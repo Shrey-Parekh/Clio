@@ -1,11 +1,8 @@
 """One JSON GET, with a timeout, off the event loop.
 
-`urllib` rather than a client library: two capabilities need one request each,
-and the stdlib already does it. It blocks, so it runs on a thread - the loop it
-would otherwise stall is the one carrying the microphone.
-
-Failures are left as `urllib.error.URLError`, which `describe_error` already
-classifies as a network problem and speaks as one.
+`urllib` (stdlib) rather than a client library; it blocks, so it runs on a
+thread to keep the mic loop free. Failures stay `urllib.error.URLError`, which
+`describe_error` already speaks as a network problem.
 """
 
 from __future__ import annotations

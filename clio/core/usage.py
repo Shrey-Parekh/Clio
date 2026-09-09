@@ -1,12 +1,8 @@
 """Token accounting per request, and a running session total.
 
-Cost is reported only where a rate is known. The current stack (Groq's free
-gpt-oss tiers, local Ollama) bills nothing, so rates are empty and cost is
-zero rather than invented - add a rate here if a paid model is ever wired in.
-
-Reasoning tokens are tracked separately because gpt-oss spends them thinking
-without ever speaking them, so they never appear in the transcript and would
-otherwise make the numbers look wrong.
+Cost is reported only where a rate is known; the current stack bills nothing,
+so `_RATES` is empty and cost is zero. Reasoning tokens are tracked separately
+because gpt-oss spends them thinking without speaking them.
 """
 
 from __future__ import annotations

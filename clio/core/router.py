@@ -1,22 +1,11 @@
 """Deterministic intent matching, ahead of the LLM.
 
-Anything matched here is handled without an API call. The LLM is the fallback
-for language and judgment, not the default path for every utterance.
-
-An intent is a matcher and a handler. The matcher inspects the transcribed text
-and returns a payload if it recognises the request, or None to decline. The
-handler receives that payload and returns what to say, or None to say nothing.
-Registration order is match order: register narrower intents first.
-
-Matching and running are separate steps. The permission tier sits between them,
-so an action needing confirmation is recognised but not performed until the
-caller has actually asked.
-
-Registering is also how a capability is declared: `capabilities()` lists what
-exists, its tier, and whether it needs the network, without running anything.
-This is the registry, extracted from four working capabilities rather than
-designed ahead of them - matcher, handler, offline claim, and a tier the
-policy assigns rather than the capability itself.
+An intent is a matcher (text -> payload, or None to decline) and a handler
+(payload -> reply, or None to stay silent). Registration order is match order,
+so narrower intents register first. Matching and running are separate steps
+with the permission tier between them, so a confirm-tier action is recognised
+but not performed until the caller has asked. `capabilities()` lists what
+exists without running anything.
 """
 
 from __future__ import annotations
@@ -46,8 +35,7 @@ class Intent:
 
 @dataclass(frozen=True)
 class Capability:
-    """One registered capability, for anything that needs to list them rather
-    than run them - what still works with no network, and the settings UI."""
+    """One registered capability, for listing rather than running."""
 
     name: str
     permission: Permission
@@ -69,18 +57,15 @@ class Match:
         return await self._handler(self._payload)
 
 
-# Only what someone actually says to join two commands. Capped low: a spoken
-# chain of five things is a sentence he would not say and could not follow the
-# answer to.
+# Spoken connectors between commands. Capped low: a chain of five is a sentence
+# nobody says and can't follow the answer to.
 _CONNECTOR = re.compile(
     r"\s+and then\s+|\s+then\s+|\s+and also\s+|\s+and\s+|\s*[;,]\s*", re.IGNORECASE
 )
 _MAX_STEPS = 4
 
-# Said, but not a request. "Clio, what time is it and flip a coin" split into
-# three, and the part reading "clio" matched nothing - which under the
-# all-parts-must-match rule threw away the whole chain and answered only the
-# time. Her own name is the one that actually happened.
+# Said, but not a request. A vocative or courtesy left as a split part matches
+# nothing, and the all-parts-must-match rule would then discard the whole chain.
 _FILLER = {
     "clio", "hey", "hi", "hello", "please", "thanks", "thank you", "ok", "okay",
     "also", "and", "so", "well", "um", "uh", "yeah", "right",
@@ -101,13 +86,10 @@ class IntentRouter:
         describe: Describer | None = None,
         offline: bool = True,
     ) -> None:
-        """`offline` is the capability's own claim about needing the network -
-        a timer does not, weather does. It is declared here because only the
-        capability knows; the permission tier is not, because letting one
-        declare its own risk would mean adding a capability could quietly grant
-        it authority. Registering resolves the tier now rather than at first
-        use, so an unclassified capability is visible at startup.
-        """
+        """`offline` is the capability's own claim about needing the network;
+        the tier is not, since letting a capability declare its own risk would
+        let adding one grant it authority. The tier is resolved now, not at
+        first use, so an unclassified capability shows up at startup."""
         self._intents.append(
             Intent(name=name, match=match, handle=handle, describe=describe, offline=offline)
         )
@@ -130,22 +112,10 @@ class IntentRouter:
         ]
 
     def plan(self, text: str) -> list[Match]:
-        """The steps to run, in the order he said them.
-
-        "Mute Chrome and lock the screen" is two actions, and answering only
-        the first is the fire-and-forget failure 2.7 exists to prevent.
-
-        The comma matters as much as the "and": without it, "alpha, beta and
-        gamma" split into two parts, and the part reading "alpha, beta"
-        matched alpha alone - silently dropping a command, which is the exact
-        failure this is here to prevent.
-
-        Splitting on "and" is dangerous on its own - "pick between tea and
-        coffee" is one request, "find and summarise" is one verb phrase. What
-        makes it safe is that a split is only accepted when *every* part
-        matches an intent by itself. Anything less falls back to treating the
-        whole sentence as one request, which is what it was before this
-        existed, so a bad split cannot make things worse than not splitting.
+        """The steps to run, in order. A split is only accepted when *every*
+        part matches an intent by itself; otherwise the whole sentence is one
+        request. This keeps "pick between tea and coffee" (one request) intact
+        while still splitting "mute Chrome and lock the screen" (two actions).
         """
         parts = [
             part for part in (p.strip() for p in _CONNECTOR.split(text))
@@ -164,10 +134,9 @@ class IntentRouter:
         return [single] if single is not None else []
 
     def match(self, text: str) -> Match | None:
-        """Returns None when nothing matches, meaning the caller should fall
-        through to the LLM. A matcher that raises is logged and skipped rather
-        than taking down the turn - one bad pattern must not block the rest.
-        """
+        """None means nothing matched and the caller falls through to the LLM.
+        A matcher that raises is logged and skipped, so one bad pattern doesn't
+        block the rest."""
         for intent in self._intents:
             try:
                 payload = intent.match(text)

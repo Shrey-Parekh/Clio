@@ -1,8 +1,4 @@
-"""Structured logging: readable console, JSON lines to a rotating file.
-
-Every decision Clio makes and every tool it calls goes through this - the point
-is to be able to debug what happened after the fact, not to guess.
-"""
+"""Structured logging: readable console, JSON lines to a rotating file."""
 
 from __future__ import annotations
 
