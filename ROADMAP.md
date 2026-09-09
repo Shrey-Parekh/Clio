@@ -361,6 +361,10 @@
   - [ ] **7.2** Screen understanding - "what's on my screen", "read this to me", "what does this error mean"
   - [ ] **7.3** Active-window context - resolve vague references by checking what you are actually looking at
   - [ ] **7.4** Vision cost controls - downscaling, caching, a per-day budget cap with a visible counter
+  - [ ] **7.5** Meeting awareness - capture system audio (WASAPI loopback) alongside the mic so she can transcribe a call, summarise it after, and answer a question *you* ask her during it. For your side of the call only.
+    - **User space, no kernel.** Loopback capture is a documented WASAPI mode; nothing here needs a driver. The one thing kernel level would add is hiding Clio from the other participants' software, which is the line below.
+    - **Consent is a design constraint, not a footnote.** Capturing other people's voices is recording-consent-regulated in two-party jurisdictions. The build is transcribe-your-own-call and ask-Clio-quietly; it is not built to be undetectable by the other side, because the only value in undetectability is deception (interviews, exams), and that is out of scope by choice rather than by capability.
+    - Depends on 5.3 (a HUD to show a live transcript) and reads best with 4.4 (push-to-talk, to ask without the room hearing you address her).
 
   ---
 
@@ -397,6 +401,8 @@
 
   ## Explicitly out of scope
 
+  - **Kernel- or driver-level integration.** Considered and rejected: almost nothing Clio wants lives below user space (hotkeys, dictation, loopback audio, app control are all user-space Win32). The only thing a driver uniquely buys is operating *below* what other apps can see - hiding from other software, capturing input inside anti-cheat/DRM'd apps. That is a rootkit's job, it needs a purchased EV cert or Secure Boot off to load at all on Win11, and one bug is a bluescreen instead of a crashed process. Enormous cost, and the sole thing it returns is invisibility - which we don't want.
+  - **Covert operation in a call.** Meeting *awareness* is in scope (7.5); being undetectable to the other participants is not. The value in undetectability is deception, and that's the reason to leave it out.
   - **Apple Music control** - no automation surface on Windows. Revisit only on Spotify or macOS.
   - **Locked platforms** - banks, WhatsApp, DRM, CAPTCHA-gated flows. Engineering does not open these.
   - **Long-horizon unsupervised autonomy** - around 15 minutes of supervised multi-step work is the
