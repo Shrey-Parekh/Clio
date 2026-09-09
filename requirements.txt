@@ -38,3 +38,8 @@ pycaw==20240210
 # Phase 3.9 - world clock. Windows ships no IANA time zone database, so
 # zoneinfo has nothing to read without this. Pure data, no code.
 tzdata==2025.2
+
+# Phase 5.1 - core WebSocket server the frontend connects to. stdlib has no WS
+# server, and hand-rolling the handshake and frame masking is a lot of fiddly
+# protocol code; websockets is the small asyncio-native standard.
+websockets==16.1.1

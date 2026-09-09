@@ -8,6 +8,7 @@ from clio.core.config import ConfigError, load_config
 from clio.core.errors import describe_error, report_error
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger, setup_logging
+from clio.core.server import CoreServer
 from clio.orchestrator import build_orchestrator
 from clio.speech.audio_input import AudioCapture
 
@@ -50,6 +51,16 @@ async def _run(config) -> int:
 
     log.info("Clio is running. Press Ctrl+C to stop.")
     exit_code = 0
+
+    # The frontend's window onto the core. A bind failure (port taken) must not
+    # stop the voice loop, so it is logged and Clio runs on without a frontend.
+    server = CoreServer(bus, config.runtime.core_port)
+    try:
+        await server.start()
+    except Exception:
+        log.exception("Core server failed to start, continuing without a frontend")
+        server = None
+
     try:
         orchestrator = build_orchestrator(config, bus)
         capture = AudioCapture(device=config.audio.input_device_arg())
@@ -71,6 +82,8 @@ async def _run(config) -> int:
         exit_code = 1
 
     await bus.publish("clio.stopping", source="clio.startup")
+    if server is not None:
+        await server.stop()
     log.info("Clio shutting down")
     return exit_code
 
