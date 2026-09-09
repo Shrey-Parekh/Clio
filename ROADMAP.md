@@ -334,6 +334,8 @@
   - [ ] **5.1** Tauri shell and core WebSocket client
   - [ ] **5.2** System tray - status, quick actions, mute, quit
   - [ ] **5.3** Overlay HUD - lightweight, always on top, showing listening/thinking/speaking state and a live transcript
+    - **Excluded from screen capture.** The HUD sets `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` so it stays on your physical screen but is invisible to the capture path Zoom/Teams/Meet share through - your private assistant does not bleed into a shared screen. User-space DWM feature, no driver. Protects against the capture APIs, not a camera pointed at the monitor.
+    - Her voice is a device-routing matter, not a code one: TTS plays to your output, the meeting only sends your mic, so headphones keep her unheard. A dedicated output device is the belt-and-suspenders version.
   - [ ] **5.4** Chat window - full history, text input as an alternative to voice, editable memory view
   - [ ] **5.5** Settings UI - voice, persona, permissions, capability toggles
   - [ ] **5.6** Autostart with Windows - launches to tray with no measurable boot impact
@@ -401,8 +403,8 @@
 
   ## Explicitly out of scope
 
-  - **Kernel- or driver-level integration.** Considered and rejected: almost nothing Clio wants lives below user space (hotkeys, dictation, loopback audio, app control are all user-space Win32). The only thing a driver uniquely buys is operating *below* what other apps can see - hiding from other software, capturing input inside anti-cheat/DRM'd apps. That is a rootkit's job, it needs a purchased EV cert or Secure Boot off to load at all on Win11, and one bug is a bluescreen instead of a crashed process. Enormous cost, and the sole thing it returns is invisibility - which we don't want.
-  - **Covert operation in a call.** Meeting *awareness* is in scope (7.5); being undetectable to the other participants is not. The value in undetectability is deception, and that's the reason to leave it out.
+  - **Kernel- or driver-level integration.** Considered and rejected: everything Clio wants lives in user space, including the two things that *sounded* like they needed a driver. Hiding her window from a screen share is `SetWindowDisplayAffinity` (a DWM feature); keeping her voice out of a call is playing to your headphones. A driver does neither better. What a driver uniquely buys is operating *below* what other software can see - hiding from other programs, capturing input inside anti-cheat/DRM'd apps - which is a rootkit's job, needs a purchased EV cert or Secure Boot off to load on Win11, and turns a crashed process into a bluescreen. Enormous cost for a capability we don't want.
+  - **Undetectable to other participants' machines.** Keeping Clio's own UI and voice out of *your* screen-share and mic is in scope (5.3) - it's your output, your privacy. Making Clio invisible to the *other side's* software, or feeding yourself answers covertly in an interview or exam, is not: the value there comes from the other person not knowing, which is the definition of the line.
   - **Apple Music control** - no automation surface on Windows. Revisit only on Spotify or macOS.
   - **Locked platforms** - banks, WhatsApp, DRM, CAPTCHA-gated flows. Engineering does not open these.
   - **Long-horizon unsupervised autonomy** - around 15 minutes of supervised multi-step work is the
