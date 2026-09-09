@@ -19,10 +19,7 @@ _SUMMARY_SYSTEM_PROMPT = (
 
 
 def estimate_tokens(text: str) -> int:
-    """Rough estimate (~4 chars/token for English), not an exact per-model count.
-    Good enough for proactive trimming with a safety margin - the point is staying
-    well clear of the real limit, not matching it exactly.
-    """
+    """Rough ~4 chars/token estimate — enough to trim with margin, not exact."""
     return max(1, len(text) // 4)
 
 
@@ -87,8 +84,7 @@ class ConversationMemory:
 
         keep_n = self._keep_recent_turns * 2  # user+assistant pairs
         if len(self._messages) <= keep_n:
-            # Nothing safe to summarize without touching the recent turns that need
-            # to stay verbatim for referential follow-ups - can't trim further.
+            # Only recent turns left, and those stay verbatim for follow-ups.
             return False
 
         to_summarize = self._messages[:-keep_n]

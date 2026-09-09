@@ -1,10 +1,6 @@
 """LLM provider behind one interface: streaming, tiered, with retry/backoff and a
-local fallback when the primary is unreachable.
-
-This is where 2.3's retry/fallback requirement gets its first real exercise rather
-than being stubbed - every LLM call in Clio goes through FallbackLLMProvider, so
-the network-down path is exercised by construction, not bolted on later.
-"""
+local fallback when the primary is unreachable. Every call goes through
+FallbackLLMProvider, so the network-down path is exercised by construction."""
 
 from __future__ import annotations
 
@@ -12,7 +8,6 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 
 from clio.core.config import Config
 from clio.core.logging import get_logger
@@ -37,17 +32,12 @@ class LLMError(Exception):
 
 
 class LLMRateLimited(LLMError):
-    """Rate limited. Retrying inside our retry window will not clear it, and the
-    local fallback is free and already running, so go there instead of waiting.
-    """
+    """Rate limited — retrying won't clear it, so fall back instead of waiting."""
 
 
 class LLMPermanentError(LLMError):
-    """A provider call failed in a way retrying can't fix (bad model name, auth
-    failure, malformed request). FallbackLLMProvider skips the retry-with-backoff
-    delay for these and falls back immediately instead of wasting time on retries
-    that can never succeed.
-    """
+    """Failed in a way retrying can't fix (bad model, auth, malformed request);
+    FallbackLLMProvider skips the backoff and falls back immediately."""
 
 
 class LLMProvider(ABC):
@@ -59,6 +49,7 @@ class LLMProvider(ABC):
         """Non-streaming convenience: collect the full stream into one string."""
         chunks = [chunk async for chunk in self.stream(messages, tier)]
         return "".join(chunks)
+
 
 class GroqProvider(LLMProvider):
     def __init__(self, config: Config):
@@ -145,11 +136,10 @@ class GroqProvider(LLMProvider):
             if delta:
                 yield delta
 
+
 class OllamaProvider(LLMProvider):
-    """Local fallback via Ollama. Reads only message.content, not message.thinking -
-    reasoning models (qwen3) stream those as separate fields, so this naturally
-    excludes think-block text from what gets spoken, same as Groq's gpt-oss tiers.
-    """
+    """Local fallback via Ollama. Reads only message.content, not message.thinking,
+    so a reasoning model's think-block text is never spoken."""
 
     def __init__(self, model: str, host: str):
         self.usage = UsageTracker()
@@ -202,11 +192,10 @@ class OllamaProvider(LLMProvider):
             if obj.get("done"):
                 return
 
+
 class FallbackLLMProvider(LLMProvider):
-    """Primary provider with retry+backoff; falls back to a secondary provider
-    (typically local) if the primary is exhausted. The fallback path is real,
-    not simulated - it's the actual OllamaProvider, exercised on every genuine outage.
-    """
+    """Primary provider with retry+backoff, falling back to a secondary (local)
+    provider once the primary is exhausted."""
 
     def __init__(self, primary: LLMProvider, fallback: LLMProvider):
         self._primary = primary
@@ -217,13 +206,9 @@ class FallbackLLMProvider(LLMProvider):
 
     @property
     def local(self) -> LLMProvider:
-        """The model that runs on this machine, addressable directly.
-
-        Needed because `using_fallback` records what answered *last*, not where
-        the next call will go - every call tries the cloud first. Anything that
-        must not leave the machine has to ask for this explicitly rather than
-        infer it.
-        """
+        """The on-machine model, addressable directly. Needed because
+        `using_fallback` records what answered last, not where the next call
+        goes; anything that must stay local asks for this explicitly."""
         return self._fallback
 
     @property
@@ -275,6 +260,7 @@ class FallbackLLMProvider(LLMProvider):
                 yield chunk
         except LLMError as exc:
             raise LLMError(f"Both primary and fallback LLM failed. Primary: {last_error}. Fallback: {exc}") from exc
+
 
 def build_default_provider(config: Config) -> FallbackLLMProvider:
     primary = GroqProvider(config)

@@ -89,12 +89,10 @@ class MemoryStore:
         try:
             self._open_index()
         except sqlite3.Error:
-            # The index is a cache over the transcripts, so a corrupt one costs
-            # nothing but the time to rebuild. Raising here would instead throw
-            # away intact plain files and start with no memory at all.
+            # The index is a rebuildable cache, so drop a corrupt one rather than
+            # lose the intact transcripts. close() first: connect() opened the
+            # handle lazily, and Windows won't unlink it while it's open.
             log.warning("Memory index unreadable, rebuilding from transcripts")
-            # connect() succeeds lazily on a corrupt file and only fails at
-            # schema time, so the handle is open and Windows will not delete it.
             self.close()
             self._index_path.unlink(missing_ok=True)
             self._open_index()
@@ -188,9 +186,8 @@ class MemoryStore:
         try:
             rows = self._db.execute(sql, params).fetchall()
         except sqlite3.Error as exc:
-            # Broad on purpose: a corrupted or locked index file raises
-            # DatabaseError, not OperationalError, and recall failing must
-            # degrade the answer, never crash the turn that asked the question.
+            # Broad on purpose: a corrupt/locked index raises DatabaseError, and
+            # failed recall must degrade the answer, not crash the turn.
             log.warning("Memory search failed", extra={"extra_fields": {"query": query, "error": str(exc)}})
             return []
 
@@ -202,13 +199,9 @@ class MemoryStore:
         ]
 
     def recall(self, query: str, limit: int = 4, exclude_session: str | None = None) -> str:
-        """Facts plus relevant things the user said before, ready to prime a
-        model with. Empty when there is nothing worth recalling.
-
-        Never returns her own past replies. Feeding an assistant its own output
-        back as context is self-reinforcing: it repeats whatever it said last
-        time the topic came up.
-        """
+        """Facts plus relevant things the user said before, to prime the model.
+        Only the user's own turns, never past assistant replies — feeding a
+        model its own output back is self-reinforcing."""
         parts: list[str] = []
 
         facts = self.facts()
