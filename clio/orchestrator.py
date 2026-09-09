@@ -39,8 +39,9 @@ from clio.capabilities.stopwatch import Stopwatch, parse_stopwatch_command
 from clio.capabilities.system import describe_system, parse_system_query
 from clio.capabilities.timer import TimerCapability, parse_timer_command, parse_timer_control
 from clio.capabilities.weather import describe_weather, is_weather_query
-from clio.core.config import Config, ConfigError, LocationConfig
+from clio.core.config import Config, ConfigError, HotkeyConfig, LocationConfig
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
+from clio.input.hotkey import HotkeyListener
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
@@ -139,6 +140,7 @@ class Orchestrator:
         consolidate: bool = True,
         prewarm: bool = True,
         location: LocationConfig | None = None,
+        hotkey: HotkeyConfig | None = None,
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
@@ -164,6 +166,12 @@ class Orchestrator:
         self._memory_max_tokens = memory_max_tokens
         self._announcements: asyncio.Queue[str] = asyncio.Queue()
         self._announcement_ready = asyncio.Event()
+        # The hotkey shares the wake wait's interrupt event; the flag says the
+        # wake returned because of a key, not a queued announcement, so the loop
+        # goes into a conversation instead of round-tripping the announcement.
+        self._hotkey_config = hotkey
+        self._hotkey_listener: HotkeyListener | None = None
+        self._hotkey_fired = False
         self._timers = TimerCapability(announce=self._announce)
         self._policy = PermissionPolicy()
         self._router = IntentRouter(self._policy)
@@ -220,6 +228,14 @@ class Orchestrator:
         self._frames = capture.frames()
         if self._prewarm:
             asyncio.ensure_future(self._warm_up_models())
+        self._start_hotkey()
+        try:
+            await self._run_loop()
+        finally:
+            if self._hotkey_listener is not None:
+                self._hotkey_listener.stop()
+
+    async def _run_loop(self) -> None:
         while True:
             await self._speak_pending_announcements()
 
@@ -228,16 +244,39 @@ class Orchestrator:
                 self._wake_detector, self._frames, interrupt=self._announcement_ready
             )
             if phrase is None:
-                continue
+                if self._hotkey_fired:
+                    # A key, not a queued announcement: drop into a turn.
+                    self._hotkey_fired = False
+                    self._announcement_ready.clear()
+                    phrase = "hotkey"
+                else:
+                    continue
 
-            # Before STT or the model runs, so the wake word is acknowledged
+            # Before STT or the model runs, so the trigger is acknowledged
             # while the slow work happens.
             play_wake_cue()
             self._woke_at = time.monotonic()
-            log.info("Wake word triggered", extra={"extra_fields": {"phrase": phrase}})
+            log.info("Woke", extra={"extra_fields": {"trigger": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
             await self._conversation_loop()
+
+    def _start_hotkey(self) -> None:
+        if self._hotkey_config is None or not self._hotkey_config.enabled:
+            return
+        loop = asyncio.get_running_loop()
+        self._hotkey_listener = HotkeyListener(
+            self._hotkey_config.combo, on_press=self._on_hotkey, loop=loop
+        )
+        if not self._hotkey_listener.start():
+            # Registration failed (combo already taken): the wake word still works.
+            self._hotkey_listener = None
+
+    def _on_hotkey(self) -> None:
+        """Runs on the loop thread, scheduled from the listener thread. Kept to
+        two flag writes: the wake wait notices the interrupt on its next frame."""
+        self._hotkey_fired = True
+        self._announcement_ready.set()
 
     async def _warm_up_models(self) -> None:
         """Load STT and TTS in the background at startup.
@@ -875,6 +914,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         consolidate=config.memory.consolidate,
         prewarm=config.memory.prewarm,
         location=config.location,
+        hotkey=config.hotkey,
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),

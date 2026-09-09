@@ -133,6 +133,15 @@ class LocationConfig:
 
 
 @dataclass(frozen=True)
+class HotkeyConfig:
+    """A global key that triggers a turn, as an alternative to the wake word.
+    Optional and defaulted, so a config predating it still starts."""
+
+    enabled: bool
+    combo: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -147,6 +156,7 @@ class Config:
     persona: PersonaConfig
     memory: MemoryConfig
     location: LocationConfig
+    hotkey: HotkeyConfig
     # Name -> path or URL, straight from TOML. A plain mapping, because a
     # dataclass around "whatever he decided to name his own things" would only
     # be a second place to edit every time he adds one.
@@ -287,6 +297,12 @@ def load_config(root: Path | None = None) -> Config:
             latitude=float(_env_override("CLIO_LATITUDE", str(location_raw.get("latitude", 0.0)))),
             longitude=float(_env_override("CLIO_LONGITUDE", str(location_raw.get("longitude", 0.0)))),
         )
+        hotkey_raw = raw.get("hotkey", {})
+        hotkey = HotkeyConfig(
+            enabled=_env_override("CLIO_HOTKEY_ENABLED", str(hotkey_raw.get("enabled", True)))
+            .strip().lower() in {"1", "true", "yes", "on"},
+            combo=_env_override("CLIO_HOTKEY_COMBO", str(hotkey_raw.get("combo", "ctrl+alt+c"))),
+        )
         # Same reason as [location]: optional, so a config predating it starts.
         shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
         file_roots = tuple(
@@ -310,6 +326,7 @@ def load_config(root: Path | None = None) -> Config:
         persona=persona,
         memory=memory,
         location=location,
+        hotkey=hotkey,
         shortcuts=shortcuts,
         file_roots=file_roots,
         runtime=runtime,
@@ -327,6 +344,12 @@ def _validate(config: Config) -> None:
         )
     if not (1024 <= config.runtime.core_port <= 65535):
         errors.append(f"runtime.core_port {config.runtime.core_port} must be between 1024 and 65535")
+    if config.hotkey.enabled:
+        from clio.input.hotkey import parse_combo
+        try:
+            parse_combo(config.hotkey.combo)
+        except ValueError as exc:
+            errors.append(f"hotkey.combo '{config.hotkey.combo}' is unusable: {exc}")
     if config.speech.tts_engine not in _VALID_TTS_ENGINES:
         errors.append(
             f"speech.tts_engine '{config.speech.tts_engine}' must be one of {sorted(_VALID_TTS_ENGINES)}"

@@ -320,7 +320,11 @@
 
   Wake word alone is not enough. Three more ways in.
 
-  - [ ] **4.1** Global keyboard hotkey - works from any app, including fullscreen
+  - [x] **4.1** Global keyboard hotkey - `clio/input/hotkey.py`, via Win32 `RegisterHotKey` on its own message-loop thread. Default `ctrl+alt+c`, configurable in `[hotkey]`.
+    - **The wake word, triggered by a key.** A press sets the same interrupt the wake wait already watches, plus a flag that says "key, not a queued announcement", so the loop drops straight into a turn. No second reader of the mic stream, no new path through STT.
+    - **Native, not a keyboard hook.** `RegisterHotKey` has the OS route one combo to us and leave every other keystroke alone - a far smaller blast radius than a `WH_KEYBOARD_LL` hook that sees everything. Ceiling: exclusive-fullscreen games own the input queue and can swallow it; windowed and borderless are fine, which is the real case.
+    - **A taken combo is not fatal.** If another app already owns the key, registration fails, it's logged, and Clio carries on listening for the wake word. `MOD_NOREPEAT` means holding it fires once.
+    - Combo is validated at config load (a wrong VK is a hotkey that silently never fires). Parser and the flag contract in `tests/test_hotkey.py`; the message-loop half is verified live.
   - [ ] **4.2** Mouse button or gesture trigger
   - [ ] **4.3** Dictation anywhere - you speak, it types into whatever has focus. High value and easy to underrate.
   - [ ] **4.4** Push-to-talk mode - hold to speak, as an alternative to VAD endpointing

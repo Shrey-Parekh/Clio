@@ -143,6 +143,14 @@ name = ""                 # spoken aloud: "It's 21 degrees in Mumbai"
 latitude = 0.0
 longitude = 0.0
 
+[hotkey]
+# A global key that triggers a turn from any app, even windowed-fullscreen -
+# the wake word, without the wake word. At least one modifier (ctrl/alt/shift/
+# win) plus a letter, digit, F1-F24 or 'space'. If another app already owns the
+# combo, Clio logs it and carries on listening for the wake word.
+enabled = true
+combo = "ctrl+alt+c"
+
 [files]
 # The only folders she may look inside - listing, finding, searching and
 # reading, never writing. Empty means she says she has nowhere to look rather
