@@ -7,14 +7,36 @@
     <link rel="stylesheet" href="src/styles.css" />
   </head>
   <body>
-    <header>
-      <span id="dot" class="dot"></span>
-      <span id="status">connecting…</span>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="bar">
+      <div class="mark">CLIO<span class="tag">listening instrument</span></div>
+      <div class="link" id="link">
+        <span class="link-dot"></span>
+        <span id="link-text">LINK</span>
+      </div>
     </header>
-    <main>
-      <ul id="events" aria-live="polite"></ul>
-      <p id="empty" class="empty">Waiting for Clio…</p>
-    </main>
+
+    <section class="scope">
+      <canvas id="signal"></canvas>
+      <div class="readout">
+        <div class="state" id="state">STANDBY</div>
+        <div class="sub" id="sub">waiting for the core</div>
+      </div>
+    </section>
+
+    <footer class="log">
+      <div class="line you" id="you-line" hidden>
+        <span class="who">YOU</span>
+        <span class="said" id="you-said"></span>
+      </div>
+      <div class="line clio" id="clio-line" hidden>
+        <span class="who">CLIO</span>
+        <span class="said" id="clio-said"></span>
+      </div>
+      <p class="idle-hint" id="idle-hint">Say “hey Clio”, or press your trigger.</p>
+    </footer>
+
     <script src="src/main.js"></script>
   </body>
 </html>

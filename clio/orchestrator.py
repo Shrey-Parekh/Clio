@@ -243,12 +243,14 @@ class Orchestrator:
             log.info("Woke", extra={"extra_fields": {"trigger": phrase}})
             if self._bus is not None:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
+            await self._emit("clio.state", {"state": "listening"})
             if phrase == "dictation":
                 await self._dictate_once()
             elif phrase == "ptt":
                 await self._ptt_turn()
             else:
                 await self._conversation_loop()
+            await self._emit("clio.state", {"state": "idle"})
 
     def _start_triggers(self) -> None:
         hotkey_on = self._hotkey_config is not None and self._hotkey_config.enabled
@@ -287,6 +289,12 @@ class Orchestrator:
         self._triggered = True
         self._trigger_source = source
         self._announcement_ready.set()
+
+    async def _emit(self, name: str, payload: dict | None = None) -> None:
+        """Publish a frontend event, if a bus is wired. State and transcript go
+        out this way so the HUD reflects what she's doing without polling."""
+        if self._bus is not None:
+            await self._bus.publish(name, payload or {}, source="clio.orchestrator")
 
     def _ptt_pressed(self) -> None:
         # Key-down repeats while held; only the first edge starts a turn.
@@ -376,6 +384,8 @@ class Orchestrator:
             )
             self._memory.add_user(text)
             self._record(role="user", content=text)
+            await self._emit("clio.transcript", {"role": "user", "text": text})
+            await self._emit("clio.state", {"state": "thinking"})
 
             reply_text, turn_used_llm = await self._handle_utterance(text)
             used_llm = used_llm or turn_used_llm
@@ -399,6 +409,8 @@ class Orchestrator:
                 # listening. Speaking an empty string is still a turn with latency.
                 next_turn = await self._listen_silently()
             else:
+                await self._emit("clio.transcript", {"role": "assistant", "text": reply_text})
+                await self._emit("clio.state", {"state": "speaking"})
                 session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
                 outcome = await session.respond(reply_text, self._frames)
 
