@@ -151,6 +151,14 @@ longitude = 0.0
 enabled = true
 combo = "ctrl+alt+c"
 
+[mouse]
+# A spare mouse button that triggers a turn, the same as the hotkey. Off by
+# default so it claims no button uninvited. Set enabled = true and pick a
+# button: "x2"/"forward", "x1"/"back", or "middle". The button still works
+# normally - it fires Clio as well, it doesn't swallow the click.
+enabled = false
+button = "x2"
+
 [files]
 # The only folders she may look inside - listing, finding, searching and
 # reading, never writing. Empty means she says she has nowhere to look rather

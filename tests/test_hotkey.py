@@ -57,9 +57,10 @@ def main():
     # --- a press raises the same interrupt the wake word does ---
 
     orchestrator = build(HotkeyConfig(enabled=True, combo="ctrl+alt+c"))
-    assert not orchestrator._hotkey_fired and not orchestrator._announcement_ready.is_set()
-    orchestrator._on_hotkey()
-    assert orchestrator._hotkey_fired, "the loop reads this to know it was a key, not a timer"
+    assert not orchestrator._triggered and not orchestrator._announcement_ready.is_set()
+    orchestrator._fire_trigger("hotkey")
+    assert orchestrator._triggered, "the loop reads this to know it was a trigger, not a timer"
+    assert orchestrator._trigger_source == "hotkey", "the source is logged"
     assert orchestrator._announcement_ready.is_set(), "the wake wait breaks on this event"
     print("OK  a press sets the flag and the interrupt the wake wait watches")
 
@@ -67,7 +68,7 @@ def main():
 
     for cfg in [None, HotkeyConfig(enabled=False, combo="ctrl+alt+c")]:
         orch = build(cfg)
-        orch._start_hotkey()
+        orch._start_triggers()
         assert orch._hotkey_listener is None, f"no listener expected for {cfg}"
     print("OK  a disabled or missing hotkey config starts no listener")
 

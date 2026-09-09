@@ -15,9 +15,10 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.timer import TimerCapability
-from clio.core.config import Config, ConfigError, HotkeyConfig, LocationConfig
+from clio.core.config import Config, ConfigError, HotkeyConfig, LocationConfig, MouseConfig
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
+from clio.input.mouse import MouseTrigger
 from clio.core.events import Event, EventBus
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
@@ -103,6 +104,7 @@ class Orchestrator:
         prewarm: bool = True,
         location: LocationConfig | None = None,
         hotkey: HotkeyConfig | None = None,
+        mouse: MouseConfig | None = None,
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
@@ -128,12 +130,15 @@ class Orchestrator:
         self._memory_max_tokens = memory_max_tokens
         self._announcements: asyncio.Queue[str] = asyncio.Queue()
         self._announcement_ready = asyncio.Event()
-        # The hotkey shares the wake wait's interrupt event; the flag says the
-        # wake returned because of a key, not a queued announcement, so the loop
-        # goes into a conversation instead of round-tripping the announcement.
+        # Hotkey and mouse both feed one manual-trigger path. The flag tells the
+        # wake wait its interrupt was a trigger, not a queued announcement, so
+        # the loop goes into a conversation; the source is just for the log.
         self._hotkey_config = hotkey
+        self._mouse_config = mouse
         self._hotkey_listener: HotkeyListener | None = None
-        self._hotkey_fired = False
+        self._mouse_trigger: MouseTrigger | None = None
+        self._triggered = False
+        self._trigger_source = ""
         self._timers = TimerCapability(announce=self._announce)
         self._policy = PermissionPolicy()
         self._router = IntentRouter(self._policy)
@@ -190,12 +195,13 @@ class Orchestrator:
         self._frames = capture.frames()
         if self._prewarm:
             asyncio.ensure_future(self._warm_up_models())
-        self._start_hotkey()
+        self._start_triggers()
         try:
             await self._run_loop()
         finally:
-            if self._hotkey_listener is not None:
-                self._hotkey_listener.stop()
+            for listener in (self._hotkey_listener, self._mouse_trigger):
+                if listener is not None:
+                    listener.stop()
 
     async def _run_loop(self) -> None:
         while True:
@@ -206,11 +212,11 @@ class Orchestrator:
                 self._wake_detector, self._frames, interrupt=self._announcement_ready
             )
             if phrase is None:
-                if self._hotkey_fired:
-                    # A key, not a queued announcement: drop into a turn.
-                    self._hotkey_fired = False
+                if self._triggered:
+                    # A trigger, not a queued announcement: drop into a turn.
+                    self._triggered = False
                     self._announcement_ready.clear()
-                    phrase = "hotkey"
+                    phrase = self._trigger_source or "trigger"
                 else:
                     continue
 
@@ -223,21 +229,29 @@ class Orchestrator:
                 await self._bus.publish("clio.wake", {"phrase": phrase}, source="clio.orchestrator")
             await self._conversation_loop()
 
-    def _start_hotkey(self) -> None:
-        if self._hotkey_config is None or not self._hotkey_config.enabled:
+    def _start_triggers(self) -> None:
+        hotkey_on = self._hotkey_config is not None and self._hotkey_config.enabled
+        mouse_on = self._mouse_config is not None and self._mouse_config.enabled
+        if not (hotkey_on or mouse_on):
             return
         loop = asyncio.get_running_loop()
-        self._hotkey_listener = HotkeyListener(
-            self._hotkey_config.combo, on_press=self._on_hotkey, loop=loop
-        )
-        if not self._hotkey_listener.start():
-            # Registration failed (combo already taken): the wake word still works.
-            self._hotkey_listener = None
+        if hotkey_on:
+            listener = HotkeyListener(
+                self._hotkey_config.combo, on_press=lambda: self._fire_trigger("hotkey"), loop=loop
+            )
+            # Start failed (combo already taken): the wake word still works.
+            self._hotkey_listener = listener if listener.start() else None
+        if mouse_on:
+            trigger = MouseTrigger(
+                self._mouse_config.button, on_press=lambda: self._fire_trigger("mouse"), loop=loop
+            )
+            self._mouse_trigger = trigger if trigger.start() else None
 
-    def _on_hotkey(self) -> None:
-        """Runs on the loop thread, scheduled from the listener thread. Kept to
-        two flag writes: the wake wait notices the interrupt on its next frame."""
-        self._hotkey_fired = True
+    def _fire_trigger(self, source: str) -> None:
+        """Runs on the loop thread, scheduled from a listener thread. Kept to
+        flag writes: the wake wait notices the interrupt on its next frame."""
+        self._triggered = True
+        self._trigger_source = source
         self._announcement_ready.set()
 
     async def _warm_up_models(self) -> None:
@@ -595,23 +609,12 @@ class Orchestrator:
             log.info("Consolidated durable facts", extra={"extra_fields": {"added": added}})
 
     async def _announce(self, text: str) -> None:
-        """Queues an unprompted announcement (a fired timer) for the main loop
-        to speak. Deliberately does not speak here: this runs on the timer's
-        own background task, and speaking would start a second consumer of the
-        shared frame stream while the main loop is already reading it, which
-        an async generator refuses outright ("anext(): asynchronous generator
-        is already running"). The main loop is the sole reader; it drains this
-        queue at points where it is not mid-read.
-        """
+
         await self._announcements.put(text)
         self._announcement_ready.set()
 
     async def _speak_pending_announcements(self) -> None:
-        """Speaks whatever is queued. Only ever called from the main loop, so
-        the frame stream still has exactly one reader. An announcement raised
-        while a conversation is in progress waits until that conversation's
-        current turn is done rather than cutting into it.
-        """
+  
         while not self._announcements.empty():
             text = await self._announcements.get()
             try:
@@ -653,6 +656,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         prewarm=config.memory.prewarm,
         location=config.location,
         hotkey=config.hotkey,
+        mouse=config.mouse,
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),

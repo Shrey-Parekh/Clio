@@ -325,7 +325,11 @@
     - **Native, not a keyboard hook.** `RegisterHotKey` has the OS route one combo to us and leave every other keystroke alone - a far smaller blast radius than a `WH_KEYBOARD_LL` hook that sees everything. Ceiling: exclusive-fullscreen games own the input queue and can swallow it; windowed and borderless are fine, which is the real case.
     - **A taken combo is not fatal.** If another app already owns the key, registration fails, it's logged, and Clio carries on listening for the wake word. `MOD_NOREPEAT` means holding it fires once.
     - Combo is validated at config load (a wrong VK is a hotkey that silently never fires). Parser and the flag contract in `tests/test_hotkey.py`; the message-loop half is verified live.
-  - [ ] **4.2** Mouse button or gesture trigger
+  - [x] **4.2** Mouse button trigger - `clio/input/mouse.py`, a low-level `WH_MOUSE_LL` hook on its own message-loop thread. Off by default in `[mouse]`; when on, a spare button (x2/forward, x1/back, or middle) fires a turn.
+    - **Shares the hotkey's path.** Both feed one `_fire_trigger(source)`, so the wake loop has a single manual-trigger branch and the log records which source woke her. The 4.1 `_hotkey_fired`/`_on_hotkey` names generalised to `_triggered`/`_fire_trigger`.
+    - **No RegisterHotKey for the mouse**, so a low-level hook is genuinely required - the mouse equivalent of the keyboard hook 4.1 avoided. The callback is O(1) and passes every event through (`CallNextHookEx`), so the button still works normally; it fires Clio as well, it doesn't swallow the click.
+    - **Gesture deferred, not skipped.** A button is the lazy, useful half of "button or gesture"; path-tracking gesture recognition is real work for marginal gain over a button. Noted in the module.
+    - Button validated at config load; parser and the shared-trigger contract in `tests/test_mouse.py`, the hook verified live.
   - [ ] **4.3** Dictation anywhere - you speak, it types into whatever has focus. High value and easy to underrate.
   - [ ] **4.4** Push-to-talk mode - hold to speak, as an alternative to VAD endpointing
 

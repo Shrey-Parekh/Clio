@@ -142,6 +142,16 @@ class HotkeyConfig:
 
 
 @dataclass(frozen=True)
+class MouseConfig:
+    """A spare mouse button that triggers a turn. Optional and defaulted, so a
+    config predating it still starts; off by default, so it claims no button
+    until asked."""
+
+    enabled: bool
+    button: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -157,6 +167,7 @@ class Config:
     memory: MemoryConfig
     location: LocationConfig
     hotkey: HotkeyConfig
+    mouse: MouseConfig
     # Name -> path or URL, straight from TOML. A plain mapping, because a
     # dataclass around "whatever he decided to name his own things" would only
     # be a second place to edit every time he adds one.
@@ -303,6 +314,12 @@ def load_config(root: Path | None = None) -> Config:
             .strip().lower() in {"1", "true", "yes", "on"},
             combo=_env_override("CLIO_HOTKEY_COMBO", str(hotkey_raw.get("combo", "ctrl+alt+c"))),
         )
+        mouse_raw = raw.get("mouse", {})
+        mouse = MouseConfig(
+            enabled=_env_override("CLIO_MOUSE_ENABLED", str(mouse_raw.get("enabled", False)))
+            .strip().lower() in {"1", "true", "yes", "on"},
+            button=_env_override("CLIO_MOUSE_BUTTON", str(mouse_raw.get("button", "x2"))),
+        )
         # Same reason as [location]: optional, so a config predating it starts.
         shortcuts = {str(k): str(v) for k, v in raw.get("shortcuts", {}).items()}
         file_roots = tuple(
@@ -327,6 +344,7 @@ def load_config(root: Path | None = None) -> Config:
         memory=memory,
         location=location,
         hotkey=hotkey,
+        mouse=mouse,
         shortcuts=shortcuts,
         file_roots=file_roots,
         runtime=runtime,
@@ -350,6 +368,12 @@ def _validate(config: Config) -> None:
             parse_combo(config.hotkey.combo)
         except ValueError as exc:
             errors.append(f"hotkey.combo '{config.hotkey.combo}' is unusable: {exc}")
+    if config.mouse.enabled:
+        from clio.input.mouse import parse_button
+        try:
+            parse_button(config.mouse.button)
+        except ValueError as exc:
+            errors.append(f"mouse.button '{config.mouse.button}' is unusable: {exc}")
     if config.speech.tts_engine not in _VALID_TTS_ENGINES:
         errors.append(
             f"speech.tts_engine '{config.speech.tts_engine}' must be one of {sorted(_VALID_TTS_ENGINES)}"
