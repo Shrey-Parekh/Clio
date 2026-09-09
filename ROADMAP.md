@@ -346,7 +346,10 @@
 
   Stops it feeling like a script you are babysitting.
 
-  - [ ] **5.1** Tauri shell and core WebSocket client
+  - [x] **5.1** Tauri shell and core WebSocket client - two halves.
+    - **Core server** (`clio/core/server.py`): a localhost-only WebSocket server that subscribes to the event bus and broadcasts every event as JSON to connected frontends. Bound to 127.0.0.1 (the bus carries transcripts and state - never the network). One-way for now; commands from the frontend come later. Started alongside the orchestrator in `__main__`, fail-safe: a taken port is logged and the voice loop runs on without a frontend. `websockets` is the dep - stdlib has no WS server and the handshake/framing is too much to hand-roll. Real round-trip test in `tests/test_server.py`.
+    - **Tauri v2 shell** (`frontend/`): a vanilla-JS webview (no bundler) whose `src/main.js` connects to `ws://127.0.0.1:8765`, shows a connection dot and a live event list, and reconnects on drop. The Rust side only opens the window; a scoped CSP allows just the local WS. Tray, the capture-excluded HUD, chat and settings build on it.
+    - **Not verified live here.** The Python server is tested end-to-end; the GUI half was scaffolded without a display to run `tauri dev` in. It needs `cd frontend && npm install && npm run dev` on the machine - the Rust compile and WebView2 render are the live check, and first-run config fixups may be needed. Placeholder icon ships; `npm run tauri icon` makes a real set.
   - [ ] **5.2** System tray - status, quick actions, mute, quit
   - [ ] **5.3** Overlay HUD - lightweight, always on top, showing listening/thinking/speaking state and a live transcript
     - **Excluded from screen capture.** The HUD sets `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` so it stays on your physical screen but is invisible to the capture path Zoom/Teams/Meet share through - your private assistant does not bleed into a shared screen. User-space DWM feature, no driver. Protects against the capture APIs, not a camera pointed at the monitor.
