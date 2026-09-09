@@ -1,11 +1,8 @@
 """Speech-to-text behind a swappable interface.
 
-Benchmarked local faster-whisper (small.en, CUDA) against Groq's hosted
-whisper-large-v3-turbo on real synthesized speech, clean and at 5dB SNR: identical
-accuracy in both conditions, Groq marginally faster (~0.22s vs ~0.26s mean). Local
-is the default - free, private, works offline, and doesn't spend the same Groq
-rate-limit budget the LLM calls use. Groq is available as an alternate provider,
-useful if the GPU is busy or the model isn't warm yet.
+Local faster-whisper is the default — free, private, offline, and it doesn't
+spend the Groq rate-limit budget the LLM calls use. (Benchmarked as accurate as
+Groq's hosted turbo, marginally slower.) Groq is available as an alternate.
 """
 
 from __future__ import annotations
@@ -21,15 +18,17 @@ from clio.speech.audio_input import SAMPLE_RATE
 
 log = get_logger("clio.speech.stt")
 
+
 class STTEngine(ABC):
     @abstractmethod
     async def transcribe(self, audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> str:
         """Transcribe a complete audio segment (e.g. one full user turn) to text."""
 
     async def warm_up(self) -> None:
-        """Load whatever is loaded lazily, ahead of the first real request.
-        Default is a no-op - the hosted engine has nothing local to load."""
+        """Load lazily-loaded models ahead of the first request. No-op by
+        default — a hosted engine has nothing local to load."""
         return None
+
 
 class FasterWhisperEngine(STTEngine):
     """Local STT via faster-whisper. Lazy-loads and warm-keeps the model."""
@@ -67,8 +66,8 @@ class FasterWhisperEngine(STTEngine):
         return self._model
 
     async def warm_up(self) -> None:
-        # Same reasoning as the TTS side: run one throwaway transcription so the
-        # first real utterance doesn't pay model load *and* kernel warm-up.
+        # One throwaway transcription, so the first real utterance doesn't pay
+        # model load and kernel warm-up together.
         loop = asyncio.get_running_loop()
         silence = np.zeros(SAMPLE_RATE // 2, dtype=np.float32)
         await loop.run_in_executor(None, self._transcribe_sync, silence)

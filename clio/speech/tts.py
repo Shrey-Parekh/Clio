@@ -1,10 +1,8 @@
-"""Text-to-speech behind a swappable interface. Sentence-level streaming: playback of
-sentence N starts as soon as it's rendered, while sentence N+1 renders concurrently.
+"""Text-to-speech behind a swappable interface. Sentence-level streaming:
+sentence N plays while N+1 renders.
 
-Single-flight contract: call speak() again, or cancel(), only after the previous
-speak() has returned. Overlapping speak() calls are not supported here - that
-coordination belongs to whatever drives barge-in (task 1.10), which knows the
-actual interrupt semantics the voice loop needs.
+Single-flight: call speak() again, or cancel(), only after the previous speak()
+returns. Overlapping calls are the barge-in driver's job to coordinate.
 """
 
 from __future__ import annotations
@@ -54,8 +52,8 @@ _SPEAKABLE = {
 
 
 def normalize_for_speech(text: str) -> str:
-    """Make text say-able. Kokoro reads what it is given literally, so anything
-    typographic has to become either a pause or a word before it gets there."""
+    """Make text say-able: Kokoro reads literally, so typographic marks must
+    become a pause or a word first."""
     for source, replacement in _SPEAKABLE.items():
         text = text.replace(source, replacement)
     text = re.sub(r"\s+", " ", text)
@@ -91,14 +89,10 @@ def split_sentences(text: str) -> list[str]:
 class SpeechEngine(ABC):
     @abstractmethod
     async def speak(self, text: str) -> str:
-        """Speak text sentence by sentence, streaming as each renders.
-        Returns when finished, or as soon as possible after cancel() is called.
-
-        Returns the text actually spoken aloud - the whole thing normally, or
-        just the sentences that finished playing if cancel() cut it short.
-        Callers record that rather than the full text, so Clio never believes
-        she said more than the user heard.
-        """
+        """Speak sentence by sentence, streaming as each renders. Returns the
+        text actually spoken — all of it, or only the sentences that finished
+        playing if cancel() cut it short, so callers never record more than the
+        user heard."""
 
     @abstractmethod
     def cancel(self) -> None:
@@ -137,17 +131,14 @@ class KokoroSpeechEngine(SpeechEngine):
 
     @speed.setter
     def speed(self, value: float) -> None:
-        """Settable so "slow down" takes effect mid-conversation. Not
-        persisted - config/default.toml is his to edit, not hers."""
+        """Settable so "slow down" takes effect mid-conversation. Not persisted."""
         self._speed = value
 
     def _ensure_loaded(self):
         if self._kokoro is None:
-            # The shipped model is fp16 built for GPU. Left to itself, ONNX Runtime
-            # picks TensorRT first (not installed here, and it fails loudly) or
-            # quietly lands on CPU, where fp16 runs through generic kernels roughly
-            # 30x slower and sounds worse. Pin the provider and put CUDA's DLLs on
-            # PATH before the session exists, since it can't be fixed afterwards.
+            # fp16 GPU model: left alone, ONNX Runtime lands on CPU (~30x slower,
+            # worse sounding). Pin CUDA and put its DLLs on PATH before the
+            # session exists — it can't be fixed afterwards.
             if self._device == "cuda":
                 ensure_cuda_dlls_on_path()
                 os.environ.setdefault("ONNX_PROVIDER", "CUDAExecutionProvider")
@@ -179,11 +170,9 @@ class KokoroSpeechEngine(SpeechEngine):
         return kokoro.create(sentence, voice=self._voice, speed=self._speed, lang="en-us")
 
     async def _render_racing_cancel(self, sentence: str):
-        """Run synthesis in a thread, but don't block on it if cancel() fires first.
-        Synthesis is CPU-bound (1-2s) and can't be preempted once started - the thread
-        keeps running to completion regardless, but the coroutine stops waiting on it.
-        Returns None if cancellation won the race or synthesis failed.
-        """
+        """Synthesise in a thread, but stop waiting if cancel() fires first (the
+        thread still runs to completion; it can't be preempted). None if cancel
+        won the race or synthesis failed."""
         loop = asyncio.get_running_loop()
         render_task = loop.run_in_executor(None, self._synthesize, sentence)
         cancel_wait = asyncio.ensure_future(self._cancelled.wait())
@@ -225,9 +214,8 @@ class KokoroSpeechEngine(SpeechEngine):
             if i + 1 < len(sentences):
                 render_coro = asyncio.ensure_future(self._render_racing_cancel(sentences[i + 1]))
 
-            # Only counted as spoken once it has played all the way through. A
-            # sentence cut off partway is left out: under-reporting by at most
-            # one sentence beats claiming whole sentences the user never heard.
+            # Counted as spoken only once fully played — under-report by a
+            # sentence rather than claim one the user never heard.
             if await self._play(samples, sample_rate):
                 spoken.append(sentences[i])
 

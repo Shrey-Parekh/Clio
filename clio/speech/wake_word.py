@@ -52,11 +52,9 @@ class WakeWordDetector:
 
         model = self._ensure_loaded()
         predictions = model.predict(chunk)
-        # Kept so a caller can tell "no audio is arriving" from "audio is
-        # arriving and nothing sounds like her name" - two failures that look
-        # identical from outside and need opposite fixes.
-        # float(), not the numpy scalar predict() returns - the JSON log
-        # handler cannot serialise float32 and drops the record entirely.
+        # Lets a caller tell "no audio arriving" from "audio arriving, nothing
+        # matched". float(), not the numpy scalar: the JSON log handler can't
+        # serialise float32 and would drop the record.
         self.last_best = float(max(predictions.values(), default=0.0))
 
         triggered_slug = None

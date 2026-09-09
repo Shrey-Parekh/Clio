@@ -104,16 +104,11 @@ class TurnDetector:
     async def wait_for_onset(
         self, frames: AsyncIterator[np.ndarray], stop: asyncio.Event | None = None
     ) -> list[np.ndarray] | None:
-        """Consume frames until min_speech_ms of continuous speech is detected,
-        filtering brief noise blips. Returns the buffered frames from onset
-        onward (what capture_until_silence needs to resume from), or None if
-        `frames` ended, or if `stop` was set before onset was reached.
-
-        `stop` exists so a caller can give up waiting without cancelling this
-        coroutine: cancelling it mid-`async for` closes the shared frame
-        generator, which breaks every later reader of the same mic stream.
-        Resets VAD state.
-        """
+        """Consume frames until min_speech_ms of continuous speech, filtering
+        brief blips. Returns the frames from onset onward, or None if `frames`
+        ended or `stop` was set first. `stop` lets a caller give up without
+        cancelling this coroutine (which would close the shared frame generator
+        for every later reader). Resets VAD state."""
         self._vad.reset()
 
         pending: list[np.ndarray] = []
