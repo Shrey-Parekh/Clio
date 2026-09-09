@@ -1,27 +1,10 @@
-"""Reading what he copied, changing it, and putting it back.
+"""Read what was copied, transform it, put it back.
 
-"Fix the grammar in what I just copied" is the shape of this whole capability:
-he copies, says one sentence, pastes. So replacing the clipboard is FREE
-rather than confirmed - a capability that asks permission every time is slower
-than opening a text box and doing it himself, which defeats the point.
-
-What makes that safe is that the previous contents are kept, so "put it back"
-undoes it. What was replaced is the only thing at risk, and it is one sentence
-away from being restored.
-
-Two things it will not do:
-
-- Reading is local and stays local. Only a transform sends anything anywhere,
-  because only a transform needs a model.
-- It never sends a credential to the cloud. A clipboard is where passwords and
-  API keys live in transit, so anything that looks like one is routed to the
-  local model instead - which is the whole point of having one. Nothing is
-  refused; it just does not leave the machine. If there is no local model to
-  hand, it stops rather than falling back to the cloud.
-
-The instruction is passed through verbatim rather than matched against a list
-of supported transforms. "Make it less passive aggressive" is not something
-anyone would enumerate, and the model can already do it.
+Replacing the clipboard is FREE, not confirmed — asking every time is slower
+than doing it by hand — and safe because the previous contents are kept for
+"put it back". Reading stays local; only a transform needs a model. Anything
+that looks like a credential goes to the local model, never the cloud (and
+stops if there's no local model). The instruction is passed through verbatim.
 """
 
 from __future__ import annotations
@@ -37,10 +20,8 @@ from clio.core.logging import get_logger
 log = get_logger("clio.clipboard")
 
 _CF_UNICODETEXT = 13
-# The clipboard is a single global lock every app grabs briefly when it paints
-# a menu or a tooltip. One failed OpenClipboard was being reported as "nothing
-# on your clipboard", which is why reading it worked only sometimes. Windows'
-# own guidance is to retry.
+# The clipboard is a global lock every app grabs briefly, so one failed open
+# isn't an empty clipboard. Windows' guidance is to retry.
 _OPEN_ATTEMPTS = 8
 _OPEN_WAIT_S = 0.02
 _GMEM_MOVEABLE = 0x0002
@@ -48,9 +29,8 @@ _MAX_TRANSFORM_CHARS = 8000
 
 _user32 = ctypes.windll.user32
 _kernel32 = ctypes.windll.kernel32
-# Every signature is declared. Without argtypes, ctypes marshals a 64-bit
-# handle through a C int and SetClipboardData raises "int too long to convert"
-# - which is how this was found, on the first real round trip.
+# argtypes are required: without them ctypes marshals a 64-bit handle through a
+# C int and SetClipboardData raises "int too long to convert".
 _user32.OpenClipboard.argtypes = [wintypes.HWND]
 _user32.GetClipboardData.argtypes = [wintypes.UINT]
 _user32.GetClipboardData.restype = wintypes.HANDLE
@@ -66,9 +46,8 @@ _kernel32.GlobalFree.restype = wintypes.HGLOBAL
 
 _STRIP = re.compile(r"[.!?,;:]+$")
 
-# Every pattern needs an explicit reference to the clipboard. Without one,
-# "make it shorter" is a remark about the conversation, not a request to
-# rewrite whatever happens to be copied.
+# Every pattern must name the clipboard, or "make it shorter" is a remark about
+# the conversation, not a rewrite request.
 _REFERS = r"(?:my |the )?clipboard|what i (?:just )?copied|the (?:copied|pasted) (?:text|thing)"
 
 _PATTERNS: list[tuple[str, str]] = [
@@ -89,8 +68,8 @@ _CHANGE_VERB = re.compile(
     r"make|turn|convert|capitali[sz]e|bullet)\b"
 )
 
-# Shapes a secret takes. Deliberately blunt: a false positive costs him one
-# rephrase, a false negative puts a key in a prompt.
+# Blunt on purpose: a false positive costs a rephrase, a false negative puts a
+# key in a prompt.
 _SECRET = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY|"
     r"\b(?:sk|pk|ghp|gho|xox[baprs]|AKIA|AIza)[-_][A-Za-z0-9_-]{10,}|"
@@ -164,8 +143,7 @@ def write_text(text: str) -> bool:
         pointer = _kernel32.GlobalLock(handle)
         ctypes.memmove(pointer, ctypes.create_unicode_buffer(text), size)
         _kernel32.GlobalUnlock(handle)
-        # Windows owns the memory once this succeeds, so it must not be freed
-        # here - and must be freed if it fails, or the block leaks.
+        # On success Windows owns the memory (don't free it); on failure free it.
         if not _user32.SetClipboardData(_CF_UNICODETEXT, handle):
             _kernel32.GlobalFree(handle)
             return False
