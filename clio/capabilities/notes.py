@@ -1,19 +1,8 @@
-""""Note this down" - into a file he can open, read and edit himself.
+""""Note this down" — into a plain markdown file, appended, grouped by day.
 
-Plain markdown, appended, grouped by day. Not a database, not JSON, not a row
-in the memory index: the point of quick capture is that the thing he captured
-is still there in six months, findable by anything, including by him with a
-text editor and no Clio running at all.
-
-It lands under the memory root, which sits inside his Documents folder - so
-3.6's file search finds notes without being told about them.
-
-Deliberately separate from `facts.md`. That file holds what the model distilled
-about him and what he corrected her on; this holds what he asked her to write
-down, in his words, unchanged. Mixing them would mean a consolidation pass
-could one day rewrite a note he dictated.
-
-Nothing here deletes. Editing and pruning is what a text editor is for.
+Under the memory root (inside Documents), so the file search finds it and a
+text editor opens it with no Clio running. Kept separate from facts.md so a
+consolidation pass can never rewrite a dictated note. Nothing here deletes.
 """
 
 from __future__ import annotations
@@ -36,10 +25,8 @@ here by hand; nothing reads this file expecting a particular shape.
 _STRIP = re.compile(r"[.!?,;:]+$")
 _MAX_SPOKEN = 5
 
-# Whisper puts a word in front of almost everything: "read my notes" came back
-# as "I read my notes", which an anchored pattern rejects outright. Absorbed
-# here rather than loosened to a search, so "denote" and "he wrote it down"
-# still match nothing.
+# Whisper prefixes a word onto most utterances ("read my notes" -> "I read my
+# notes"). Absorbed here, not loosened to a search, so "denote" still matches nothing.
 _LEAD = r"^(?:(?:i|you|we|can you|could you|would you|please|clio|hey|ok|okay|now|just|"
 _LEAD += r"i'?d like to|i want to|let'?s)\s+)*"
 
@@ -92,10 +79,8 @@ class NoteBook:
         return self._path
 
     def add(self, content: str, now: datetime | None = None) -> str:
-        """Appends under today's heading, creating the file and the day as
-        needed. Append-only: a note is never rewritten, so a crash halfway
-        through can lose the newest line and nothing else.
-        """
+        """Append under today's heading. Append-only, so a crash can lose the
+        newest line and nothing else."""
         content = " ".join(content.split())
         if not content:
             return "Nothing to write down."
@@ -134,8 +119,7 @@ class NoteBook:
             return "You haven't got any notes yet."
 
         newest = lines[-limit:][::-1]
-        # The times are in the file for when he reads it himself. Spoken back
-        # they are noise - he is asking what the notes say, not when.
+        # Drop the times when spoken — the question is what the notes say, not when.
         spoken = [re.sub(r"^\d{2}:\d{2}\s+", "", line) for line in newest]
         head = f"Your last {len(spoken)} notes: " if len(spoken) > 1 else "One note: "
         return head + ". ".join(spoken) + "."
