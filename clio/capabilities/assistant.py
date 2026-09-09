@@ -1,13 +1,8 @@
-"""The two questions that are about her rather than about the machine: what
-can you do, and can you talk slower.
+""""What can you do" and "talk slower" — the two questions about Clio herself.
 
-Both exist because there is no screen. A GUI assistant has a menu and a
-settings panel; a voice one has neither, so the only way to discover a
-capability or change how she sounds is to ask.
-
-The list is read from the registry, never hand-written here. A hand-written
-list is wrong the moment a capability is added, and being confidently wrong
-about your own abilities is a worse failure than not having them.
+With no screen there's no menu or settings panel, so discovering a capability
+or changing how she sounds means asking. The capability list is read from the
+registry, never hand-written, so it can't go stale as capabilities are added.
 """
 
 from __future__ import annotations
@@ -28,9 +23,8 @@ _PATTERNS: list[tuple[str, str]] = [
 
 _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]
 
-# What each intent is, said the way he'd say it. Keyed on the registered name,
-# so a capability with no line here still appears - as its own name - rather
-# than quietly vanishing from the answer.
+# Spoken description per registered name. A capability with no line here still
+# appears, as its own name, rather than vanishing from the answer.
 _DESCRIPTIONS = {
     "timer": "set timers",
     "timer_control": "cancel them",
@@ -59,10 +53,8 @@ _DESCRIPTIONS = {
 # Not worth listing: he cannot usefully "ask for" these.
 _UNLISTED = {"stop", "repeat", "help"}
 
-# Spoken order, which is not registration order - registration is ordered by
-# match precedence and would open the answer with "explain what went wrong".
-# Only the headline of each group, because the persona rule about not reading
-# lists aloud applies hardest to the answer about what she can do.
+# Spoken order (not registration order, which is by match precedence). Only the
+# headline of each group — a spoken answer shouldn't recite a long list.
 _HEADLINE = [
     "clock", "timer", "notes", "open", "files", "clipboard", "control", "system",
     "media", "weather", "calculate", "chance",
@@ -98,8 +90,7 @@ def describe_capabilities(capabilities) -> str:
         return "Nothing yet, apparently."
 
     spoken = [n for n in _HEADLINE if n in registered][:_MAX_SPOKEN]
-    # Everything registered is counted, so the number is true even for the
-    # capabilities too niche to name out loud.
+    # Count everything registered, so "N other things" stays true.
     rest = len(registered) - len(spoken)
     phrases = [_DESCRIPTIONS.get(n, n) for n in spoken]
     if not phrases:
@@ -112,8 +103,7 @@ def describe_capabilities(capabilities) -> str:
 
 
 def adjust_speed(speaker, direction: str) -> str:
-    """Changes how fast she talks, for this session only. Persisting it would
-    mean writing to the config file, which is his to edit."""
+    """Changes speaking speed for this session only; not persisted."""
     current = getattr(speaker, "speed", None)
     if current is None:
         return "I can't change my speed right now."

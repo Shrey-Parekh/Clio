@@ -1,7 +1,5 @@
-"""Timers: the first real capability, and the deterministic fast path proof.
-Parsing never touches an LLM - a regex either finds a clear duration or it
-doesn't, and if it doesn't, the utterance falls through to plain conversation
-rather than a fuzzy guess. A timer must never cost an API call.
+"""Timers, on the deterministic path. A regex either finds a clear duration or
+returns None to fall through to conversation — a timer never costs an API call.
 """
 
 from __future__ import annotations
@@ -41,11 +39,7 @@ _DURATION_PATTERN = re.compile(
 
 
 def parse_timer_command(text: str) -> float | None:
-    """Returns the requested duration in seconds if `text` clearly asks to set
-    a timer for a specific duration, else None (not a timer command, or the
-    duration wasn't clear enough to parse deterministically - falls through
-    to plain conversation rather than guessing).
-    """
+    """Duration in seconds if `text` clearly asks for a timer, else None."""
     lowered = text.lower()
     if "timer" not in lowered:
         return None
@@ -74,10 +68,8 @@ _CONTROL = [(kind, re.compile(p)) for kind, p in _CONTROL_PATTERNS]
 
 
 def parse_timer_control(text: str) -> str | None:
-    """Cancelling and checking, kept separate from starting so the payload of
-    each stays what it is - a duration, or a command. Registered ahead of
-    `timer` so "cancel the five minute timer" is not read as a new one.
-    """
+    """Cancel/check, separate from starting. Registered ahead of `timer` so
+    "cancel the five minute timer" isn't read as a new one."""
     lowered = " ".join(text.strip().lower().split())
     for kind, pattern in _CONTROL:
         if pattern.search(lowered):
@@ -104,25 +96,22 @@ class TimerCapability:
     def __init__(self, announce: AnnounceFn):
         self._announce = announce
         self._active: dict[str, asyncio.Task] = {}
-        # Deadlines are monotonic, so "how long left" survives a clock change.
+        # Monotonic, so "how long left" survives a clock change.
         self._deadlines: dict[str, float] = {}
-        # What last went off, so "how long is left" asked just after the alarm
-        # gets an answer about that timer rather than a flat denial.
+        # Last fired, so "how long left" just after the alarm answers about it.
         self._last_fired: tuple[float, float] | None = None
 
     def cancel_all(self) -> str:
-        """Cancelling the task is what stops the announcement - `_run` clears
-        itself from `_active` in its own `finally`, so nothing is left behind
-        either way."""
+        """Cancelling the task stops the announcement; `_run`'s finally clears
+        `_active` too, so nothing leaks either way."""
         if not self._active:
             return "You haven't got a timer running."
         count = len(self._active)
         for task in list(self._active.values()):
             task.cancel()
         self._active.clear()
-        # Cleared here as well as in `_run`'s finally: cancellation is not
-        # delivered until the loop next runs the task, and "how long left"
-        # asked in between must not answer from a timer that is already gone.
+        # Cleared here too: cancellation isn't delivered until the loop next
+        # runs the task, and "how long left" between must not see a dead timer.
         self._deadlines.clear()
         log.info("Timers cancelled", extra={"extra_fields": {"count": count}})
         return ("That's the timer cancelled." if count == 1
@@ -148,10 +137,8 @@ class TimerCapability:
         return f"{format_duration(left[0])} left on the next one{others}."
 
     def start(self, duration_s: float) -> str:
-        """Schedules the timer and returns the confirmation text to speak
-        immediately - scheduling itself never awaits anything, so this never
-        blocks the caller on the timer actually firing.
-        """
+        """Schedule the timer and return the confirmation to speak. Never awaits
+        the timer firing, so it doesn't block the caller."""
         timer_id = uuid.uuid4().hex[:8]
         task = asyncio.ensure_future(self._run(timer_id, duration_s))
         self._active[timer_id] = task
