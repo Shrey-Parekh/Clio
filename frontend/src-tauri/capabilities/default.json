@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core permissions for the main window.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Core permissions for the HUD and the panel, plus autostart.",
+  "windows": ["main", "panel"],
+  "permissions": ["core:default", "autostart:default"]
 }

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clio — chat & settings</title>
+    <link rel="stylesheet" href="src/styles.css" />
+    <link rel="stylesheet" href="src/panel.css" />
+  </head>
+  <body class="panel">
+    <div class="grain" aria-hidden="true"></div>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="chat">CHAT</button>
+      <button class="tab-btn" data-tab="settings">SETTINGS</button>
+      <button class="tab-btn" data-tab="memory">MEMORY</button>
+      <span class="link down" id="link">
+        <span class="link-dot"></span><span id="link-text">NO LINK</span>
+      </span>
+    </nav>
+
+    <section class="tab" id="tab-chat">
+      <div class="bubbles" id="bubbles"></div>
+      <p class="hint" id="chat-hint">Talk to Clio, or type here. Both land in the same thread.</p>
+      <form class="composer" id="chat-form">
+        <input id="chat-input" placeholder="Type to Clio…" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="tab" id="tab-settings" hidden>
+      <div class="rows" id="settings"></div>
+    </section>
+
+    <section class="tab" id="tab-memory" hidden>
+      <p class="hint">What Clio remembers about you. Edit or clear lines in <code>facts.md</code>; add one here.</p>
+      <div class="facts" id="facts"></div>
+      <form class="composer" id="fact-form">
+        <input id="fact-input" placeholder="Add something to remember…" autocomplete="off" />
+        <button type="submit">Add</button>
+      </form>
+    </section>
+
+    <script src="src/panel.js"></script>
+  </body>
+</html>

@@ -14,13 +14,26 @@ const idleHint = el("idle-hint");
 const AQUA = [53, 240, 208];
 const BLUE = [110, 168, 255];
 const DIM = [74, 90, 110];
+const HOT = [255, 93, 115];
 const STATES = {
   standby:   { energy: 0.10, rgb: AQUA, label: "STANDBY",   sub: "waiting on your word",  scan: false },
   listening: { energy: 0.62, rgb: AQUA, label: "LISTENING", sub: "go ahead, I'm hearing you", scan: false },
   thinking:  { energy: 0.30, rgb: BLUE, label: "THINKING",  sub: "working it out",         scan: true },
   speaking:  { energy: 0.95, rgb: AQUA, label: "SPEAKING",  sub: "speaking",               scan: false },
+  muted:     { energy: 0.03, rgb: HOT,  label: "MUTED",     sub: "not listening",          scan: false },
   offline:   { energy: 0.02, rgb: DIM,  label: "OFFLINE",   sub: "core not connected",     scan: false },
 };
+let socket = null;
+let muted = false;
+
+function send(obj) {
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(obj));
+}
+
+// The tray's "mute" item toggles here (the core owns the real state).
+if (window.__TAURI__?.event) {
+  window.__TAURI__.event.listen("tray-mute", () => send({ cmd: "mute", on: !muted }));
+}
 
 let target = STATES.offline;
 const cur = { energy: 0.02, rgb: [...DIM] };
@@ -132,16 +145,19 @@ requestAnimationFrame(draw);
 // --- core link ---
 function connect() {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+  socket = ws;
   ws.onopen = () => {
     link.className = "link up";
     linkText.textContent = "LINK";
-    setState("standby");
+    setState(muted ? "muted" : "standby");
   };
   ws.onmessage = (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.name === "clio.state" && msg.payload?.state) {
-      setState(msg.payload.state === "idle" ? "standby" : msg.payload.state);
+      const s = msg.payload.state;
+      muted = s === "muted";
+      setState(s === "idle" ? "standby" : s);
     } else if (msg.name === "clio.transcript" && msg.payload?.text) {
       showTranscript(msg.payload.role, msg.payload.text);
     } else if (msg.name === "clio.wake") {
@@ -149,6 +165,7 @@ function connect() {
     }
   };
   ws.onclose = () => {
+    socket = null;
     link.className = "link down";
     linkText.textContent = "NO LINK";
     setState("offline");
