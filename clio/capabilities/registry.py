@@ -138,7 +138,9 @@ def register_capabilities(o) -> None:
                 return "Look what up? You haven't asked me anything yet."
             request = WebRequest("search", question)
         try:
-            spoken, used = await web_answer(request, o._persona_system_prompt, o._llm)
+            spoken, used = await web_answer(
+                request, o._persona_system_prompt, o._llm, region=o._location.name
+            )
         except Exception as exc:
             # Said, not raised: the network failing is ordinary for a search, and
             # must not end the conversation the way a broken local command does.

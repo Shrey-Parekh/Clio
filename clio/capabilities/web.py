@@ -1,14 +1,15 @@
-"""Web search and page reading (6.1), through Tavily.
+"""Web search, news and page reading (6.1, 6.2), through Tavily.
 
-"Search for", "look up", "google", "find out" run a search; a link typed into the
-chat window with "summarise" or "read" (or pasted on its own) reads that page.
-Either way she answers from what came back, with her own model. The search always
-runs, so nothing is made up from memory, and results are trimmed so the prompt
-stays small.
+"Search for", "look up", "google" and "find out" run a search. "What's the news",
+"any news about X", "headlines" and "brief me" get a briefing from the last day's
+news. A link typed into the chat window with "summarise" or "read" (or pasted on
+its own) reads that page. Every time she answers from what came back, with her
+own model: the search always runs, so nothing is made up from memory, and results
+are trimmed so the prompt stays small.
 
-Triggered by asking, not by guessing: a question that merely could use the web
-still goes to the conversation model. Saying "look it up" is what sends it out,
-so a search is never a surprise and never a cost he didn't ask for.
+Triggered by asking, never guessed and never scheduled: a question that merely
+could use the web still goes to the conversation model, and there is no briefing
+he didn't ask for.
 """
 
 from __future__ import annotations
@@ -33,11 +34,21 @@ _TIMEOUT_S = 15.0
 _SNIPPET_CHARS = 700
 _PAGE_CHARS = 6000
 
+_ANSWER = (
+    "Answer out loud in two or three short sentences, using only what's below. Lead with "
+    "the answer. No links, lists or citation marks. If it doesn't settle it, say so plainly."
+)
+_BRIEFING = (
+    "Brief him out loud on the three or four biggest stories below, a sentence or two each, "
+    "most important first. Say roughly when something happened if it matters. No links, "
+    "lists or citation marks, and don't pad it with anything that isn't below."
+)
+
 
 @dataclass(frozen=True)
 class WebRequest:
-    kind: str   # "search" or "page"
-    value: str  # the query ("" means the question before it), or the URL
+    kind: str   # "search", "news" or "page"
+    value: str  # the query ("" = the question before it), the news topic ("" = top stories), or the URL
 
 
 # Whisper hands back courtesies and her name ahead of the request - "Hey Clio,
@@ -46,6 +57,19 @@ class WebRequest:
 _LEAD = re.compile(
     r"^(?:(?:hey|hi|ok|okay|so|um|uh|clio|please|quickly|can you|could you|would you|"
     r"will you|i want you to|i need you to|go and|go)\b[\s,]*)+"
+)
+# Before the plain search verbs, so "search for news about X" is a briefing - but
+# "news" has to be the thing asked for: "search for news aggregator apps" isn't.
+_NEWS = re.compile(
+    r"^(?:(?:what'?s|what is|what are|any|give me|tell me|read me|get me|search for|look up|google|find out)\s+)?"
+    r"(?:the\s+)?(?:latest\s+|today'?s\s+|top\s+)?(?:news|headlines|news briefing)"
+    r"(?:\s+(?:today|this morning))?"
+    r"(?:\s+(?:about|on|in|from|for)\s+(?P<topic>.+))?$"
+)
+_BRIEF = re.compile(
+    r"^(?:brief me|catch me up|what'?s happening in the world(?: today)?|what'?s going on in the world|"
+    r"(?:what'?s|anything) in the news(?: today)?)"
+    r"(?:\s+on\s+(?P<topic>.+))?$"
 )
 _VERB = re.compile(
     r"^(?:search (?:the web|the internet|online|google) for|search (?:the web|the internet|online)|"
@@ -70,6 +94,9 @@ def parse_web_request(text: str) -> WebRequest | None:
 
     spoken = _PUNCT.sub("", " ".join(text.lower().split()))
     spoken = _LEAD.sub("", spoken).strip()
+    news = _NEWS.match(spoken) or _BRIEF.match(spoken)
+    if news is not None:
+        return WebRequest("news", (news.group("topic") or "").strip())
     if _REFER_BACK.match(spoken):
         return WebRequest("search", "")
     found = _VERB.match(spoken)
@@ -80,16 +107,22 @@ def parse_web_request(text: str) -> WebRequest | None:
     return WebRequest("search", query) if len(query) > 1 else None
 
 
-async def search(query: str) -> list[dict]:
-    payload = await post_json(
-        _SEARCH_URL,
-        {"query": query, "search_depth": "basic", "max_results": _MAX_RESULTS},
-        _auth(),
-        timeout_s=_TIMEOUT_S,
-    )
+async def search(query: str, *, news: bool = False, time_range: str | None = None) -> list[dict]:
+    body: dict[str, object] = {"query": query, "search_depth": "basic", "max_results": _MAX_RESULTS}
+    if news:
+        body.update(topic="news", include_published_date=True)
+    if time_range:
+        body["time_range"] = time_range
+    payload = await post_json(_SEARCH_URL, body, _auth(), timeout_s=_TIMEOUT_S)
     results = [r for r in payload.get("results") or [] if r.get("content")]
     # Logged, not spoken: where an answer came from, for when it's wrong.
-    log.info("Web search", extra={"extra_fields": {"query": query, "sources": [r.get("url") for r in results]}})
+    log.info(
+        "Web search",
+        extra={"extra_fields": {
+            "query": query, "news": news, "time_range": time_range,
+            "sources": [r.get("url") for r in results],
+        }},
+    )
     return results
 
 
@@ -102,36 +135,51 @@ async def read_page(url: str) -> str:
 
 
 def format_results(results: list[dict]) -> str:
-    return "\n\n".join(f"{r.get('title', '')}\n{r['content'][:_SNIPPET_CHARS]}" for r in results)
+    blocks = []
+    for r in results:
+        # A date is only there for news, and only when Tavily has one.
+        dated = f" ({r['published_date']})" if r.get("published_date") else ""
+        blocks.append(f"{r.get('title', '')}{dated}\n{r['content'][:_SNIPPET_CHARS]}")
+    return "\n\n".join(blocks)
 
 
-def answer_messages(persona: str, request: str, material: str) -> list[dict[str, str]]:
+def answer_messages(persona: str, request: str, material: str, shape: str = _ANSWER) -> list[dict[str, str]]:
     """Her persona, and an instruction shaped for speech: what came back is
     long, and a spoken answer is not."""
     return [
         {"role": "system", "content": persona},
-        {"role": "user", "content": (
-            f"{request}\n\nAnswer out loud in two or three short sentences, using only what's "
-            "below. Lead with the answer. No links, lists or citation marks. If it doesn't "
-            f"settle it, say so plainly.\n\n---\n{material}"
-        )},
+        {"role": "user", "content": f"{request}\n\n{shape}\n\n---\n{material}"},
     ]
 
 
-async def answer(request: WebRequest, persona: str, llm) -> tuple[str, bool]:
+async def answer(request: WebRequest, persona: str, llm, region: str = "") -> tuple[str, bool]:
     """What to say, and whether the model was asked. Raises on failure, for the
-    caller to say."""
+    caller to say. `region` narrows a general briefing to where he lives."""
+    shape = _ANSWER
     if request.kind == "page":
         text = await read_page(request.value)
         if not text:
             return "I couldn't read anything from that link.", False
         ask, material = "What is this page about?", text
+    elif request.kind == "news":
+        topic = request.value
+        where = f" in {region}" if region else ""
+        query = f"latest news about {topic}" if topic else f"top news headlines today{where}"
+        # The last day first; a quiet topic still gets last week's rather than nothing.
+        results = await search(query, news=True, time_range="day") or await search(
+            query, news=True, time_range="week"
+        )
+        if not results:
+            return (f"Nothing recent in the news about {topic}." if topic
+                    else "I couldn't get the news just now."), False
+        ask = f"Brief me on the news about {topic}." if topic else "Brief me on today's news."
+        material, shape = format_results(results), _BRIEFING
     else:
         results = await search(request.value)
         if not results:
             return f"I searched for {request.value} and nothing useful came back.", False
         ask, material = request.value, format_results(results)
-    reply = await llm.complete(answer_messages(persona, ask, material), tier="default")
+    reply = await llm.complete(answer_messages(persona, ask, material, shape), tier="default")
     return reply, True
 
 

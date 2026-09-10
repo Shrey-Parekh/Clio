@@ -1,6 +1,7 @@
-"""Web search and page reading (6.1): triggered by asking, answered from what
-Tavily actually returned, and every failure said out loud. The Tavily API is
-faked; the POST helper is exercised against a local server, never the internet.
+"""Web search, news and page reading (6.1, 6.2): triggered by asking, answered
+from what Tavily actually returned, and every failure said out loud. The Tavily
+API is faked; the POST helper is exercised against a local server, never the
+internet.
 Run: python tests/test_web.py
 """
 
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from clio.capabilities import web as web_mod  # noqa: E402
 from clio.capabilities.web import WebRequest, parse_web_request  # noqa: E402
+from clio.core.config import LocationConfig  # noqa: E402
 from clio.core.http import post_json  # noqa: E402
 from clio.core.permissions import Permission  # noqa: E402
 from clio.llm.memory import ConversationMemory  # noqa: E402
@@ -43,10 +45,11 @@ def build():
 
 
 class FakeTavily:
-    """Stands in for post_json: records calls, returns a canned body or raises."""
+    """Stands in for post_json: records calls, returns canned bodies in order
+    (the last one repeats) or raises."""
 
-    def __init__(self, body=None, error=None):
-        self.body = body if body is not None else {"results": []}
+    def __init__(self, *bodies, error=None):
+        self.bodies = list(bodies) or [{"results": []}]
         self.error = error
         self.calls = []
 
@@ -54,7 +57,7 @@ class FakeTavily:
         self.calls.append((url, body, headers))
         if self.error:
             raise self.error
-        return self.body
+        return self.bodies.pop(0) if len(self.bodies) > 1 else self.bodies[0]
 
 
 def http_error(code):
@@ -86,10 +89,27 @@ async def main():
         assert parse_web_request(text) == want, (text, parse_web_request(text))
     print("OK  search and links triggered by asking, courtesies peeled off, file search left alone")
 
+    for text, want in [
+        ("what's the news today", WebRequest("news", "")),
+        ("Hey Clio, what's the latest news on AI?", WebRequest("news", "ai")),
+        ("any news about the election", WebRequest("news", "the election")),
+        ("give me today's headlines", WebRequest("news", "")),
+        ("brief me", WebRequest("news", "")),
+        ("catch me up on cricket", WebRequest("news", "cricket")),
+        ("search for news about SpaceX", WebRequest("news", "spacex")),
+        ("what's in the news", WebRequest("news", "")),
+        ("search for news aggregator apps", WebRequest("search", "news aggregator apps")),
+        ("what's the news app called", None),
+    ]:
+        assert parse_web_request(text) == want, (text, parse_web_request(text))
+    print("OK  news asked for by name, but 'news' inside an ordinary search stays a search")
+
     o, _ = build()
     assert o._router.plan("find out who won the match")[0].intent == "web", "not a file lookup"
     assert o._router.plan("search my files for chemistry")[0].intent == "files"
     assert o._router.plan("summarise https://example.org/post")[0].intent == "web"
+    assert o._router.plan("what's in the news")[0].intent == "web", "not a folder listing"
+    assert o._router.plan("what's the news today")[0].intent == "web"
     caps = {c.name: c for c in o._router.capabilities()}
     assert caps["web"].offline is False and caps["web"].permission is Permission.FREE
     print("OK  routed ahead of files, needs the network, free tier")
@@ -106,6 +126,7 @@ async def main():
     assert spoken == "spoken answer" and used is True, (spoken, used)
     url, body, headers = tavily.calls[0]
     assert url.endswith("/search") and body["query"] == "the population of tokyo" and body["search_depth"] == "basic"
+    assert "topic" not in body and "time_range" not in body, "a plain search is not a news search"
     assert headers == {"Authorization": "Bearer tvly-test"}
     prompt, tier = llm.prompts[0]
     assert "About 14 million people." in prompt and tier == "default"
@@ -126,6 +147,39 @@ async def main():
     spoken, used = await o._handle_utterance("search for zzqx nonsense")
     assert "nothing useful" in spoken and used is False and not llm.prompts, (spoken, used)
     print("OK  no results is said plainly, with no model call")
+
+    # --- news: the last day first, a briefing shape, dates passed through ---
+
+    story = {"title": "Final won", "url": "https://example.org/final", "published_date": "Thu, 10 Sep 2026 18:00:00 GMT",
+             "content": "India won the final by six wickets."}
+    tavily = FakeTavily({"results": []}, {"results": [story]})
+    web_mod.post_json = tavily
+    o, llm = build()
+    spoken, used = await o._handle_utterance("catch me up on cricket")
+    assert spoken == "spoken answer" and used is True, (spoken, used)
+    first, second = tavily.calls[0][1], tavily.calls[1][1]
+    assert first["topic"] == "news" and first["time_range"] == "day" and first["include_published_date"] is True
+    assert second["time_range"] == "week", "a quiet day widens to the week"
+    assert first["query"] == "latest news about cricket"
+    prompt, _ = llm.prompts[0]
+    assert "Brief me on the news about cricket." in prompt and "three or four biggest stories" in prompt
+    assert "10 Sep 2026" in prompt and "six wickets" in prompt
+    print("OK  news searches the last day, widens to the week, briefs with dates")
+
+    tavily = FakeTavily({"results": [story]})
+    web_mod.post_json = tavily
+    o, llm = build()
+    o._location = LocationConfig(name="Mumbai", latitude=19.07, longitude=72.87)
+    await o._handle_utterance("what's the news today")
+    assert len(tavily.calls) == 1 and tavily.calls[0][1]["query"] == "top news headlines today in Mumbai", tavily.calls
+    assert "Brief me on today's news." in llm.prompts[0][0]
+    print("OK  a general briefing is local when a location is set, one search when the day has news")
+
+    web_mod.post_json = FakeTavily({"results": []})
+    o, llm = build()
+    spoken, used = await o._handle_utterance("any news about zzqx")
+    assert "Nothing recent" in spoken and used is False and not llm.prompts, (spoken, used)
+    print("OK  no news is said plainly, with no model call")
 
     # --- a link is read and summarised ---
 
@@ -156,7 +210,7 @@ async def main():
     tavily = FakeTavily()
     web_mod.post_json = tavily
     o, _ = build()
-    spoken, _ = await o._handle_utterance("search for anything")
+    spoken, _ = await o._handle_utterance("what's the news")
     assert "Tavily key" in spoken and not tavily.calls, spoken
     print(f"OK  no key: says what's needed and sends nothing: {spoken!r}")
 
@@ -188,7 +242,7 @@ async def main():
     assert got == {"ok": True} and seen == {"auth": "Bearer k", "type": "application/json", "body": {"query": "q"}}, seen
     print("OK  post_json sends JSON with the given headers and parses the reply")
 
-    print("\nAll web search checks passed.")
+    print("\nAll web search and news checks passed.")
 
 
 if __name__ == "__main__":

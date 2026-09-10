@@ -368,7 +368,11 @@
     - **Asked for, never guessed.** A question that could use the web still goes to the conversation model; "look it up" searches the question before it. Registered ahead of `files` ("find out who won" is not a file lookup), Free tier.
     - **Every failure is said.** No key, a rejected key (401), a used-up plan (432/433), a rate limit (429) and a network drop each get a plain sentence; nothing raises out of the turn.
     - Needs `TAVILY_API_KEY` in `.env` (free at tavily.com). Tested with Tavily faked and `post_json` against a local server (`tests/test_web.py`); **not yet run against the live API**, since no key was set.
-  - [ ] **6.2** News briefing - on demand, not scheduled spam
+  - [x] **6.2** News briefing - on demand, not scheduled spam. Part of `clio/capabilities/web.py`: a news request is a kind of web request, sharing 6.1's Tavily key, trimming, failure handling and Free tier rather than growing a second capability.
+    - **Asked for by name.** "What's the news", "any news about the election", "give me today's headlines", "brief me", "catch me up on cricket". Checked before the plain search verbs, so "search for news about X" is a briefing, while "search for news aggregator apps" stays a search - "news" has to be the thing asked for. "What's in the news" is claimed ahead of `files`, which would otherwise list a folder called news.
+    - **Recent first.** Tavily's news topic over the last day; a topic with nothing that recent widens to the week instead of saying nothing. A general briefing is narrowed to `[location] name` when one is set.
+    - **Briefing-shaped.** The three or four biggest stories, a sentence or two each, most important first, with publish dates passed to the model so "yesterday" is said when it matters. Nothing scheduled - there is no briefing he didn't ask for; morning routines are 10.2.
+    - Tested with Tavily faked (`tests/test_web.py`: matching, routing, the day-to-week widening, the location, no news, dates in the prompt); **not yet run against the live API**, since no `TAVILY_API_KEY` was set.
   - [ ] **6.3** Calendar - read first, then create with confirmation
   - [ ] **6.4** Alarms, reminders and scheduling - via Windows Task Scheduler, surviving restarts
   - [ ] **6.5** Task list integration
