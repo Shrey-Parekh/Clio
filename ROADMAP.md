@@ -374,6 +374,7 @@
     - **Briefing-shaped.** The three or four biggest stories, a sentence or two each, most important first, with publish dates passed to the model so "yesterday" is said when it matters. Nothing scheduled - there is no briefing he didn't ask for; morning routines are 10.2.
     - Tested with Tavily faked (`tests/test_web.py`: matching, routing, the day-to-week widening, the location, no news, dates in the prompt), then **verified live**: "what's the news today" gave a four-story briefing in 3.9s. With no location set it skews to US stories, so setting `[location] name` matters.
   - [ ] **6.3** Calendar - read first, then create with confirmation
+    - **Skipped for now:** no calendar in use (neither Google nor Outlook), so there is nothing to read. Revisit if one is adopted; reminders that need no account are 6.4.
   - [ ] **6.4** Alarms, reminders and scheduling - via Windows Task Scheduler, surviving restarts
   - [ ] **6.5** Task list integration
   - [ ] **6.6** Email, read-only - unread counts, triage, summarisation. You write the replies.
