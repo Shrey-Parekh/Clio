@@ -1,46 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Clio — chat & settings</title>
-    <link rel="stylesheet" href="src/styles.css" />
-    <link rel="stylesheet" href="src/panel.css" />
-  </head>
-  <body class="panel">
-    <div class="grain" aria-hidden="true"></div>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws://127.0.0.1:8765" />
+<title>Clio — panel</title>
+<style>
+  :root {
+    --ink:#0A0B0E; --slab:#0E1014; --rule:#14171C; --hair:#101318;
+    --bone:#EDE8DE; --text:#C9C4BA; --ash:#8B9099; --dim:#4E535A;
+    --sodium:#F0A83C; --rust:#A85A44;
+    --chrome:Bahnschrift,'Segoe UI Variable Small','Segoe UI',system-ui,sans-serif;
+    --speech:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body { margin:0; background:var(--ink); color:var(--text); font-family:var(--speech);
+         display:flex; flex-direction:column; }
+  .chrome { font-family:var(--chrome); text-transform:uppercase; letter-spacing:.22em; }
+  .lbl { font:400 8.5px/1.6 var(--chrome); letter-spacing:.22em; color:var(--dim); text-transform:uppercase; }
 
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="chat">CHAT</button>
-      <button class="tab-btn" data-tab="settings">SETTINGS</button>
-      <button class="tab-btn" data-tab="memory">MEMORY</button>
-      <span class="link down" id="link">
-        <span class="link-dot"></span><span id="link-text">NO LINK</span>
-      </span>
+  header { flex:none; padding:14px 18px 0; border-bottom:1px solid var(--rule); -webkit-app-region:drag; }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .word { font:600 10px/1 var(--chrome); letter-spacing:.34em; color:var(--bone); }
+  .link { display:flex; align-items:center; gap:8px; }
+  #dot { width:4px; height:4px; border-radius:50%; background:#3A3F46; }
+  #linkTxt { font:400 8.5px/1 var(--chrome); letter-spacing:.2em; color:#5B6068; text-transform:uppercase; }
+  nav { display:flex; gap:26px; -webkit-app-region:no-drag; }
+  nav button { appearance:none; background:none; border:0; padding:0 0 11px; cursor:pointer;
+    font:500 9.5px/1 var(--chrome); letter-spacing:.24em; text-transform:uppercase;
+    color:#5B6068; border-bottom:1.5px solid transparent; }
+  nav button[aria-selected="true"] { color:var(--bone); border-bottom-color:var(--sodium); }
+
+  main { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .pane { flex:1; min-height:0; display:none; flex-direction:column; }
+  .pane[data-on] { display:flex; }
+  .scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; }
+  .scroll::-webkit-scrollbar { width:8px; }
+  .scroll::-webkit-scrollbar-thumb { background:#1C2027; border-radius:4px; }
+
+  #thread { padding:20px 18px 8px; display:flex; flex-direction:column; gap:18px; }
+  .turn { display:flex; gap:12px; align-items:baseline; }
+  .turn .tag { flex:none; width:34px; font:400 8.5px/1.5 var(--chrome); letter-spacing:.22em; color:var(--dim); }
+  .turn .txt { flex:1; min-width:0; font:400 13.5px/1.55 var(--speech); color:var(--ash);
+               text-wrap:pretty; overflow-wrap:anywhere; }
+  .turn.assistant .tag { color:#8A6528; }
+  .turn.assistant .txt { color:#E0A44A; }
+  .empty { padding:40px 18px; font:400 13px/1.6 var(--speech); color:var(--dim); }
+
+  .composer { flex:none; padding:12px 18px 16px; border-top:1px solid var(--rule); display:flex; gap:10px; align-items:center; }
+  input[type=text] { flex:1; min-width:0; appearance:none; background:var(--slab); border:1px solid #1D222A;
+    border-radius:5px; padding:9px 11px; color:var(--bone); font:400 13px/1.3 var(--speech); outline:none; }
+  input[type=text]:focus { border-color:#3A4048; }
+  input::placeholder { color:#565A61; }
+  .btn { appearance:none; flex:none; background:#14171C; border:1px solid #232830; border-radius:5px;
+    padding:9px 15px; cursor:pointer; color:var(--text); font:500 9px/1.3 var(--chrome);
+    letter-spacing:.22em; text-transform:uppercase; }
+  .btn:hover { border-color:var(--sodium); color:var(--sodium); }
+  .btn[disabled] { opacity:.4; cursor:default; }
+  .btn[disabled]:hover { border-color:#232830; color:var(--text); }
+
+  #settings { padding:20px 18px 24px; }
+  .facts, .grid { width:100%; }
+  .grid { display:grid; grid-template-columns:96px 1fr; gap:12px 14px; align-items:baseline; }
+  .grid div:nth-child(even) { font:400 13px/1.5 var(--speech); color:var(--text); overflow-wrap:anywhere; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border:1px solid #1D222A; border-radius:3px; padding:4px 8px; font:400 11px/1.2 var(--speech); color:var(--ash); }
+  .hint { margin:9px 0 0 110px; font:400 8.5px/1.4 var(--chrome); letter-spacing:.16em; color:var(--dim); text-transform:uppercase; }
+  hr { border:0; height:1px; background:var(--rule); margin:22px 0; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  #speedVal { font:500 13px/1 var(--chrome); letter-spacing:.06em; color:var(--bone); }
+  input[type=range] { width:100%; margin-top:12px; accent-color:var(--sodium); background:transparent; }
+  #caps { display:flex; flex-direction:column; }
+  .cap { display:flex; align-items:center; gap:12px; padding:9px 0; border-top:1px solid var(--hair); }
+  .cap .nm { flex:1; min-width:0; font:400 13px/1.3 var(--speech); color:var(--text); overflow-wrap:anywhere; }
+  .cap .net { flex:none; width:52px; text-align:right; font:400 8.5px/1 var(--chrome); letter-spacing:.18em; text-transform:uppercase; color:var(--dim); }
+  .cap .net.on { color:var(--sodium); }
+  .tier { flex:none; width:66px; text-align:center; border:1px solid #2A3038; border-radius:3px; padding:4px 0;
+    font:500 8.5px/1 var(--chrome); letter-spacing:.18em; text-transform:uppercase; color:#B7BCC4; }
+  .tier.confirm { color:var(--sodium); border-color:#4A3617; }
+  .tier.blocked { color:var(--rust); border-color:#3A2019; }
+
+  #memHead { flex:none; padding:18px 18px 10px; }
+  #facts { padding:0 18px 8px; }
+  .fact { display:flex; gap:14px; align-items:baseline; padding:10px 0; border-top:1px solid var(--hair); }
+  .fact .n { flex:none; width:20px; font:400 9px/1.6 var(--chrome); letter-spacing:.1em; color:#3E434A; }
+  .fact .t { flex:1; min-width:0; font:400 13.5px/1.55 var(--speech); color:var(--text); text-wrap:pretty; overflow-wrap:anywhere; }
+
+  :focus-visible { outline:1px solid var(--sodium); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div class="word">CLIO</div>
+      <div class="link"><div id="dot"></div><div id="linkTxt">not connected</div></div>
+    </div>
+    <nav role="tablist">
+      <button role="tab" data-tab="chat" aria-selected="true">Chat</button>
+      <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+      <button role="tab" data-tab="memory" aria-selected="false">Memory</button>
     </nav>
+  </header>
 
-    <section class="tab" id="tab-chat">
-      <div class="bubbles" id="bubbles"></div>
-      <p class="hint" id="chat-hint">Talk to Clio, or type here. Both land in the same thread.</p>
-      <form class="composer" id="chat-form">
-        <input id="chat-input" placeholder="Type to Clio…" autocomplete="off" />
-        <button type="submit">Send</button>
-      </form>
+  <main>
+    <section class="pane" data-pane="chat" data-on>
+      <div class="scroll"><div id="thread"><div class="empty">Nothing said yet. Talk, or type below.</div></div></div>
+      <div class="composer">
+        <input id="say" type="text" placeholder="Type instead of speaking" autocomplete="off" />
+        <button class="btn" id="sendBtn">Send</button>
+      </div>
     </section>
 
-    <section class="tab" id="tab-settings" hidden>
-      <div class="rows" id="settings"></div>
+    <section class="pane" data-pane="settings">
+      <div class="scroll"><div id="settings">
+        <div class="grid">
+          <div class="lbl">PERSONA</div><div id="persona">—</div>
+          <div class="lbl">VOICE</div><div id="voice">—</div>
+          <div class="lbl">WAKE</div><div class="chips" id="wake"></div>
+        </div>
+        <div class="hint">Restart Clio to change these</div>
+        <hr />
+        <div class="row"><div class="lbl">SPEAKING SPEED</div><div id="speedVal">1.00×</div></div>
+        <input id="speed" type="range" min="0.7" max="1.5" step="0.05" value="1" aria-label="Speaking speed" />
+        <div class="row" style="margin-top:24px">
+          <div class="lbl">MICROPHONE</div>
+          <button class="btn" id="muteBtn">Live</button>
+        </div>
+        <hr />
+        <div class="row" style="margin-bottom:12px">
+          <div class="lbl">CAPABILITIES</div>
+          <div class="lbl" style="letter-spacing:.16em;color:#3E434A">tier · network</div>
+        </div>
+        <div id="caps"></div>
+      </div></div>
     </section>
 
-    <section class="tab" id="tab-memory" hidden>
-      <p class="hint">What Clio remembers about you. Edit or clear lines in <code>facts.md</code>; add one here.</p>
-      <div class="facts" id="facts"></div>
-      <form class="composer" id="fact-form">
-        <input id="fact-input" placeholder="Add something to remember…" autocomplete="off" />
-        <button type="submit">Add</button>
-      </form>
+    <section class="pane" data-pane="memory">
+      <div class="lbl" id="memHead">Memory</div>
+      <div class="scroll"><div id="facts"></div></div>
+      <div class="composer">
+        <input id="fact" type="text" placeholder="Tell Clio something to remember" autocomplete="off" />
+        <button class="btn" id="addBtn">Add</button>
+      </div>
     </section>
+  </main>
 
-    <script src="src/panel.js"></script>
-  </body>
+<script src="clio-bus.js"></script>
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var connected = false, muted = false;
+
+  /* tabs */
+  var tabs = [].slice.call(document.querySelectorAll('nav button'));
+  tabs.forEach(function (b) {
+    b.addEventListener('click', function () {
+      tabs.forEach(function (o) { o.setAttribute('aria-selected', String(o === b)); });
+      document.querySelectorAll('.pane').forEach(function (p) {
+        if (p.dataset.pane === b.dataset.tab) p.setAttribute('data-on', ''); else p.removeAttribute('data-on');
+      });
+    });
+  });
+
+  var bus = new ClioBus('ws://127.0.0.1:8765');
+
+  function setLink(on) {
+    connected = on;
+    $('#dot').style.background = on ? '#F0A83C' : '#3A3F46';
+    $('#linkTxt').textContent = on ? '127.0.0.1:8765' : 'not connected';
+    [ '#sendBtn', '#addBtn', '#muteBtn', '#speed' ].forEach(function (s) { $(s).disabled = !on; });
+  }
+
+  /* chat */
+  var thread = $('#thread'), threadScroll = thread.parentNode, empty = true;
+  function addTurn(role, text) {
+    if (empty) { thread.innerHTML = ''; empty = false; }
+    var d = document.createElement('div');
+    d.className = 'turn ' + (role === 'assistant' ? 'assistant' : 'user');
+    var tag = document.createElement('div'); tag.className = 'tag';
+    tag.textContent = role === 'assistant' ? 'CLIO' : 'YOU';
+    var tx = document.createElement('div'); tx.className = 'txt'; tx.textContent = text;
+    d.appendChild(tag); d.appendChild(tx); thread.appendChild(d);
+    threadScroll.scrollTop = threadScroll.scrollHeight;
+  }
+  function say() {
+    var v = $('#say').value.trim(); if (!v || !connected) return;
+    bus.send({ cmd: 'say', text: v });
+    $('#say').value = '';
+  }
+  $('#sendBtn').addEventListener('click', say);
+  $('#say').addEventListener('keydown', function (e) { if (e.key === 'Enter') say(); });
+
+  /* settings */
+  $('#speed').addEventListener('input', function () {
+    $('#speedVal').textContent = parseFloat(this.value).toFixed(2) + '×';
+  });
+  $('#speed').addEventListener('change', function () {
+    bus.send({ cmd: 'tts_speed', value: parseFloat(this.value) });
+  });
+  function paintMute() {
+    var b = $('#muteBtn');
+    b.textContent = muted ? 'Muted' : 'Live';
+    b.style.color = muted ? '#A85A44' : '';
+    b.style.borderColor = muted ? '#3A2019' : '';
+  }
+  $('#muteBtn').addEventListener('click', function () {
+    muted = !muted; paintMute(); bus.send({ cmd: 'mute', on: muted });
+  });
+
+  function paintSettings(p) {
+    $('#persona').textContent = p.persona || '—';
+    $('#voice').textContent = p.voice || '—';
+    var w = $('#wake'); w.innerHTML = '';
+    (p.wake_phrases || []).forEach(function (ph) {
+      var c = document.createElement('div'); c.className = 'chip'; c.textContent = ph; w.appendChild(c);
+    });
+    if (typeof p.tts_speed === 'number') {
+      $('#speed').value = p.tts_speed;
+      $('#speedVal').textContent = p.tts_speed.toFixed(2) + '×';
+    }
+    muted = !!p.muted; paintMute();
+    var caps = $('#caps'); caps.innerHTML = '';
+    (p.capabilities || []).forEach(function (c) {
+      var tier = (p.permissions && p.permissions[c.name]) || c.permission || 'free';
+      var row = document.createElement('div'); row.className = 'cap';
+      var nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = c.name;
+      var net = document.createElement('div');
+      net.className = 'net' + (c.offline ? '' : ' on');
+      net.textContent = c.offline ? 'local' : 'network';
+      var t = document.createElement('div'); t.className = 'tier ' + tier; t.textContent = tier;
+      row.appendChild(nm); row.appendChild(net); row.appendChild(t); caps.appendChild(row);
+    });
+  }
+
+  /* memory */
+  function paintFacts(list) {
+    var box = $('#facts'); box.innerHTML = '';
+    $('#memHead').textContent = list.length
+      ? list.length + ' things Clio remembers'
+      : 'Nothing remembered yet';
+    list.forEach(function (f, i) {
+      var d = document.createElement('div'); d.className = 'fact';
+      var n = document.createElement('div'); n.className = 'n';
+      n.textContent = String(i + 1).padStart(2, '0');
+      var t = document.createElement('div'); t.className = 't'; t.textContent = f;
+      d.appendChild(n); d.appendChild(t); box.appendChild(d);
+    });
+  }
+  function addFact() {
+    var v = $('#fact').value.trim(); if (!v || !connected) return;
+    bus.request({ cmd: 'add_fact', text: v }, function (r) {
+      if (r && r.added) { $('#fact').value = ''; bus.request({ cmd: 'get_memory' }, function (m) { paintFacts(m.facts || []); }); }
+    });
+  }
+  $('#addBtn').addEventListener('click', addFact);
+  $('#fact').addEventListener('keydown', function (e) { if (e.key === 'Enter') addFact(); });
+
+  /* wiring */
+  bus.on('open', function () {
+    setLink(true);
+    bus.request({ cmd: 'get_settings' }, paintSettings);
+    bus.request({ cmd: 'get_memory' }, function (m) { paintFacts(m.facts || []); });
+  });
+  bus.on('close', function () { setLink(false); });
+  bus.on('clio.transcript', function (p) { if (p && p.text) addTurn(p.role, p.text); });
+
+  setLink(false);
+  paintFacts([]);
+})();
+</script>
+</body>
 </html>

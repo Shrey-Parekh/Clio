@@ -25,15 +25,20 @@ npm run build      # tauri build
 
 ## Layout
 
-- `index.html`, `src/` — the web layer (vanilla JS, no bundler). `src/main.js`
-  holds the WebSocket client.
-- `src-tauri/` — the Rust shell: `tauri.conf.json` (window + CSP), `src/main.rs`
-  (opens the window), `capabilities/` (v2 permissions).
+- `index.html` — the always-on HUD (the amber iris). `panel.html` — the chat /
+  settings / memory window. Both are frameless, vanilla JS, no bundler.
+- `lattice.js` — the `<clio-lattice>` canvas iris (dependency-free). `clio-bus.js`
+  — the auto-reconnecting WebSocket adapter both pages share.
+- `src-tauri/` — the Rust shell: `tauri.conf.json` (windows + CSP), `src/main.rs`
+  (tray, windows, capture-excluded + always-on-top HUD, autostart), `capabilities/`
+  (v2 permissions).
 
 The placeholder icon in `src-tauri/icons/` is a solid colour; replace it with a
 real icon set via `npm run tauri icon path/to/icon.png`.
 
 ## Scope
 
-This is 5.1 - the shell and the core link. The tray (5.2), the capture-excluded
-HUD (5.3), the chat window (5.4) and settings (5.5) build on it.
+Phase 5 complete: the shell + core link (5.1), tray (5.2), capture-excluded HUD
+(5.3), chat window (5.4), settings + memory (5.5). The link is bidirectional —
+the pages send `say` / `mute` / `tts_speed` / `add_fact` and read back settings
+and memory over the same socket.

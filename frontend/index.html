@@ -1,42 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Clio</title>
-    <link rel="stylesheet" href="src/styles.css" />
-  </head>
-  <body>
-    <div class="grain" aria-hidden="true"></div>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws://127.0.0.1:8765" />
+<title>Clio</title>
+<style>
+  :root {
+    --ink:#05060A; --slab:#0E1014; --rule:#14171C;
+    --bone:#EDE8DE; --ash:#7B7F86; --dim:#4E535A;
+    --sodium:#F0A83C; --rust:#A85A44; --cool:#9FB4BC;
+    --chrome:Bahnschrift,'Segoe UI Variable Small','Segoe UI',system-ui,sans-serif;
+    --speech:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body {
+    margin:0; background:var(--ink); color:var(--bone);
+    font-family:var(--speech); user-select:none;
+    display:flex; flex-direction:column;
+  }
+  .chrome { font-family:var(--chrome); text-transform:uppercase; }
+  header {
+    flex:none; height:36px; padding:0 14px; display:flex; align-items:center;
+    justify-content:space-between; border-bottom:1px solid var(--rule);
+    -webkit-app-region:drag;
+  }
+  .brand { display:flex; align-items:center; gap:9px; }
+  #dot { width:5px; height:5px; border-radius:50%; background:var(--dim); transition:background .3s; }
+  .word { font:600 10px/1 var(--chrome); letter-spacing:.34em; color:var(--bone); }
+  #link { font:400 9px/1 var(--chrome); letter-spacing:.18em; color:#5B6068; text-transform:uppercase; }
 
-    <header class="bar">
-      <div class="mark">CLIO<span class="tag">listening instrument</span></div>
-      <div class="link" id="link">
-        <span class="link-dot"></span>
-        <span id="link-text">LINK</span>
-      </div>
-    </header>
+  #stage { position:relative; flex:1; min-height:0; }
+  clio-lattice { position:absolute; inset:0; }
+  #readout { position:absolute; left:0; right:0; bottom:0; padding:0 18px 16px; pointer-events:none; }
+  .cap { font:400 9px/1 var(--chrome); letter-spacing:.3em; color:#5B6068; margin-bottom:9px; }
+  #state { font:600 38px/0.9 Bahnschrift,'Segoe UI Variable Display','Segoe UI',system-ui,sans-serif;
+           letter-spacing:.05em; text-transform:uppercase; color:var(--bone); transition:color .35s; }
+  #track { margin-top:12px; height:1px; background:#1B1F25; position:relative; }
+  #meter { position:absolute; left:0; top:0; height:1px; width:18%; background:var(--bone); transition:width .28s ease, background .35s; }
+  #note { margin-top:8px; font:400 9.5px/1.5 var(--chrome); letter-spacing:.14em; color:#5B6068; text-transform:uppercase; }
 
-    <section class="scope">
-      <canvas id="signal"></canvas>
-      <div class="readout">
-        <div class="state" id="state">STANDBY</div>
-        <div class="sub" id="sub">waiting for the core</div>
-      </div>
-    </section>
+  #turns { flex:none; border-top:1px solid var(--rule); padding:13px 18px 14px; display:flex; flex-direction:column; gap:11px; }
+  .turn { display:flex; gap:12px; align-items:baseline; }
+  .turn .tag { flex:none; width:32px; font:400 8.5px/1.4 var(--chrome); letter-spacing:.22em; }
+  .turn .txt { flex:1; min-width:0; font:400 12.5px/1.45 var(--speech); overflow:hidden;
+               display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; user-select:text; }
+  #you .tag { color:var(--dim); } #you .txt { color:#8B9099; }
+  #clio .tag { color:#8A6528; } #clio .txt { color:#E0A44A; font-size:13px; -webkit-line-clamp:3; }
 
-    <footer class="log">
-      <div class="line you" id="you-line" hidden>
-        <span class="who">YOU</span>
-        <span class="said" id="you-said"></span>
-      </div>
-      <div class="line clio" id="clio-line" hidden>
-        <span class="who">CLIO</span>
-        <span class="said" id="clio-said"></span>
-      </div>
-      <p class="idle-hint" id="idle-hint">Say “hey Clio”, or press your trigger.</p>
-    </footer>
+  footer { flex:none; height:30px; padding:0 18px; display:flex; align-items:center;
+           justify-content:space-between; border-top:1px solid var(--rule); background:#090A0D; }
+  footer div { font:400 8.5px/1 var(--chrome); letter-spacing:.2em; color:#464B52; }
+  #mic { color:#464B52; }
+  :focus-visible { outline:1px solid var(--sodium); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><div id="dot"></div><div class="word">CLIO</div></div>
+    <div id="link" class="chrome">connecting…</div>
+  </header>
 
-    <script src="src/main.js"></script>
-  </body>
+  <div id="stage">
+    <clio-lattice state="offline"></clio-lattice>
+    <div id="readout">
+      <div class="cap chrome">STATE</div>
+      <div id="state">No core</div>
+      <div id="track"><div id="meter"></div></div>
+      <div id="note" class="chrome">Reconnecting to 8765</div>
+    </div>
+  </div>
+
+  <div id="turns">
+    <div class="turn" id="you"><div class="tag chrome">YOU</div><div class="txt">Nothing heard yet.</div></div>
+    <div class="turn" id="clio"><div class="tag chrome">CLIO</div><div class="txt">I am here when you are.</div></div>
+  </div>
+
+  <footer>
+    <div>“HEY CLIO” · CTRL+ALT+C</div>
+    <div id="mic">MIC LIVE</div>
+  </footer>
+
+<script src="lattice.js"></script>
+<script src="clio-bus.js"></script>
+<script>
+(function () {
+  var STATES = {
+    standby:   { word:'Standby',   color:'#EDE8DE', note:'Wake word armed',        meter:'18%' },
+    listening: { word:'Listening', color:'#EDE8DE', note:'Recording · local only', meter:'100%' },
+    thinking:  { word:'Thinking',  color:'#9FB4BC', note:'Working it out',         meter:'62%' },
+    speaking:  { word:'Speaking',  color:'#F0A83C', note:'Answering aloud',        meter:'84%' },
+    muted:     { word:'Muted',     color:'#A85A44', note:'Microphone off',         meter:'0%' },
+    offline:   { word:'No core',   color:'#6B7078', note:'Reconnecting to 8765',   meter:'0%' }
+  };
+
+  var lattice = document.querySelector('clio-lattice');
+  var elState = document.getElementById('state');
+  var elNote  = document.getElementById('note');
+  var elMeter = document.getElementById('meter');
+  var elDot   = document.getElementById('dot');
+  var elLink  = document.getElementById('link');
+  var elMic   = document.getElementById('mic');
+  var elYou   = document.querySelector('#you .txt');
+  var elClio  = document.querySelector('#clio .txt');
+
+  var connected = false, current = 'offline';
+
+  function render(name) {
+    var s = STATES[connected ? name : 'offline'] || STATES.standby;
+    elState.textContent = s.word;
+    elState.style.color = s.color;
+    elState.style.textShadow = connected
+      ? '0 0 26px ' + s.color + '55, 0 0 9px ' + s.color + '30'
+      : 'none';
+    elNote.textContent = s.note;
+    elMeter.style.width = s.meter;
+    elMeter.style.background = s.color;
+    lattice.setAttribute('state', connected ? name : 'offline');
+    elDot.style.background = !connected ? '#3A3F46' : (name === 'muted' ? '#A85A44' : '#F0A83C');
+    elLink.textContent = connected ? '127.0.0.1:8765' : 'not connected';
+    elMic.textContent = name === 'muted' ? 'MIC OFF' : 'MIC LIVE';
+    elMic.style.color = name === 'muted' ? '#A85A44' : '#464B52';
+  }
+
+  var bus = new ClioBus('ws://127.0.0.1:8765');
+  bus.on('open', function () { connected = true; render(current); });
+  bus.on('close', function () { connected = false; render('offline'); });
+  bus.on('clio.state', function (p) {
+    current = p.state === 'idle' ? 'standby' : (p.state || 'standby');
+    render(current);
+  });
+  bus.on('clio.wake', function () { if (lattice.pulse) lattice.pulse(); });
+  bus.on('clio.transcript', function (p) {
+    if (!p || !p.text) return;
+    (p.role === 'assistant' ? elClio : elYou).textContent = p.text;
+  });
+
+  // tray "Mute" item → toggle the mic through the core
+  if (window.__TAURI__ && window.__TAURI__.event) {
+    window.__TAURI__.event.listen('tray-mute', function () {
+      bus.send({ cmd: 'mute', on: current !== 'muted' });
+    });
+  }
+
+  render('offline');
+})();
+</script>
+</body>
 </html>

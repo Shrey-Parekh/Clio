@@ -15,7 +15,8 @@
         "width": 420,
         "height": 560,
         "resizable": true,
-        "alwaysOnTop": true
+        "alwaysOnTop": true,
+        "decorations": false
       },
       {
         "label": "panel",
@@ -24,7 +25,8 @@
         "width": 500,
         "height": 660,
         "resizable": true,
-        "visible": false
+        "visible": false,
+        "decorations": false
       }
     ],
     "security": {
