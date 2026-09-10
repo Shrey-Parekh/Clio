@@ -14,6 +14,7 @@ from clio.capabilities.correction import parse_correction
 from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
+from clio.capabilities.remind import ReminderCapability
 from clio.capabilities.timer import TimerCapability
 from clio.core.config import (
     Config, ConfigError, DictationConfig, HotkeyConfig, LocationConfig, MouseConfig,
@@ -118,6 +119,8 @@ class Orchestrator:
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
+        memory_root: str | None = None,
+        core_port: int = 8765,
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._shortcuts = shortcuts or {}
@@ -129,6 +132,9 @@ class Orchestrator:
         self._consolidating: asyncio.Future | None = None
         self._clipboard = Clipboard()
         self._notes = NoteBook(notes_path or "memory/notes.md")
+        # Reminders live in Task Scheduler, not here; this only needs to know
+        # where the words are kept and which port to speak through when one fires.
+        self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)
         self._wake_detector = wake_detector
         self._turn_detector = turn_detector
         self._stt = stt
@@ -298,7 +304,15 @@ class Orchestrator:
         self._trigger_source = source
         self._announcement_ready.set()
 
-    # --- frontend command surface (5.2/5.4/5.5) ---
+    # --- frontend command surface (5.2/5.4/5.5), and reminders firing (6.4) ---
+
+    async def announce(self, text: str) -> None:
+        """Say something she wasn't asked for, at the next gap. A reminder
+        arrives here from `clio/remind.py` when Windows fires it, through the
+        same queue timers already use."""
+        text = text.strip()
+        if text:
+            await self._announce(text)
 
     @property
     def muted(self) -> bool:
@@ -897,6 +911,8 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),
+        memory_root=config.memory.root,
+        core_port=config.runtime.core_port,
     )
 
 

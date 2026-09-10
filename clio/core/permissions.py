@@ -24,6 +24,8 @@ class Permission(Enum):
 # work or lose data. Anything unlisted fails safe to CONFIRM.
 _DEFAULT_RULES: dict[str, Permission] = {
     "timer": Permission.FREE,
+    "remind": Permission.FREE,
+    "remind_control": Permission.FREE,
     "stop": Permission.FREE,
     "status": Permission.FREE,
     "repeat": Permission.FREE,

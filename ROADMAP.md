@@ -375,7 +375,12 @@
     - Tested with Tavily faked (`tests/test_web.py`: matching, routing, the day-to-week widening, the location, no news, dates in the prompt), then **verified live**: "what's the news today" gave a four-story briefing in 3.9s. With no location set it skews to US stories, so setting `[location] name` matters.
   - [ ] **6.3** Calendar - read first, then create with confirmation
     - **Skipped for now:** no calendar in use (neither Google nor Outlook), so there is nothing to read. Revisit if one is adopted; reminders that need no account are 6.4.
-  - [ ] **6.4** Alarms, reminders and scheduling - via Windows Task Scheduler, surviving restarts
+  - [x] **6.4** Alarms, reminders and scheduling - via Windows Task Scheduler, surviving restarts
+    - Task Scheduler is both the clock and the list: one task per reminder, named `Clio-Reminder-<id>`. Nothing of Clio's has to be running, or to survive a reboot, for a reminder to fire. Design in `docs/superpowers/specs/2026-09-11-reminders-design.md`.
+    - "Remind me to take my meds at 7am", "in 20 minutes", "on Monday at 9", "every weekday at 8", "wake me up at 6:15", plus "what reminders do I have" and "cancel my 7am reminder".
+    - When one fires, `clio/remind.py` toasts it and, if she happens to be running, asks her to say it through the same announcement queue timers use.
+    - **Live-verified:** a reminder set through the real code path fired at 02:48:01 with Clio closed, exit code 0, toast shown. That run also caught a real bug - a spent one-off task stays in Task Scheduler, so it was being read back as still upcoming. Now swept whenever the list is touched.
+    - **Known ceiling:** a reminder due while the machine is off is missed, not caught up. `schtasks` can't set that flag; registering the task from XML could.
   - [ ] **6.5** Task list integration
   - [ ] **6.6** Email, read-only - unread counts, triage, summarisation. You write the replies.
   - [ ] **6.7** Document handling - PDF, DOCX, spreadsheets and images, read and summarised

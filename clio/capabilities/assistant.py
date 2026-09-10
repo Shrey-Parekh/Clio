@@ -28,6 +28,8 @@ _COMPILED = [(kind, re.compile(p)) for kind, p in _PATTERNS]
 _DESCRIPTIONS = {
     "timer": "set timers",
     "timer_control": "cancel them",
+    "remind": "set reminders and alarms that outlive a restart",
+    "remind_control": "list and cancel them",
     "stopwatch": "run a stopwatch",
     "clock": "tell you the time anywhere in the world",
     "calculate": "do sums",

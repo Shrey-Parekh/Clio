@@ -101,8 +101,14 @@ running.
 
 ### `clio/remind.py` — what Windows actually runs
 
-A standalone module, started as `pythonw -m clio.remind <id>`. It imports no part
-of the voice stack, so it starts in well under a second.
+A standalone module, started as `pythonw remind.py <memory root> <core port> <id>`.
+It imports no part of the voice stack, so it starts in well under a second.
+
+(Built slightly differently from the first draft of this spec, which passed only
+the id: the root and port are baked into the scheduled command as well, so the
+fire script needs nothing of Clio's importable but `websockets`. Reading the
+config would have pulled in config validation for a script whose whole job is one
+sentence and a toast.)
 
 1. Read `<id>.txt` for the text.
 2. Connect to `ws://127.0.0.1:<core port>` with a short timeout and send

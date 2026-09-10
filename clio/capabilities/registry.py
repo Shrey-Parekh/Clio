@@ -8,6 +8,7 @@ narrower intents register before broader ones.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 from clio.capabilities.assistant import (
     adjust_speed, describe_capabilities, parse_help_request, parse_voice_request,
@@ -26,6 +27,9 @@ from clio.capabilities.files import look_up, parse_file_request
 from clio.capabilities.launch import open_target, resolve as resolve_target
 from clio.capabilities.network import describe_network, parse_network_request
 from clio.capabilities.notes import parse_note_request
+from clio.capabilities.remind import (
+    MIN_LEAD_S, parse_reminder_control, parse_reminder_request,
+)
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
@@ -149,6 +153,22 @@ def register_capabilities(o) -> None:
         o._intent_used_llm = used
         return spoken
 
+    async def remind(payload: object) -> str:
+        reminder = payload  # type: ignore[assignment]
+        lead_s = (reminder.when - datetime.now()).total_seconds()
+        if lead_s < MIN_LEAD_S:
+            # Windows schedules by the minute, so anything sooner is a timer's job.
+            return f"That's too soon to schedule. {o._timers.start(max(1.0, lead_s))}"
+        # schtasks is a subprocess, so it runs off the loop like the other
+        # blocking capabilities.
+        return await asyncio.to_thread(o._reminders.set, reminder)
+
+    async def remind_control(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        if request.kind == "list":
+            return await asyncio.to_thread(o._reminders.listing)
+        return await asyncio.to_thread(o._reminders.cancel, request.which)
+
     async def clock(payload: object) -> str:
         kind, value = payload  # type: ignore[misc]
         return clock_answer(kind, value)
@@ -228,6 +248,10 @@ def register_capabilities(o) -> None:
     r.register("timer_control", parse_timer_control, timer_control)
     r.register("timer", parse_timer_command, start_timer)
     r.register("stopwatch", parse_stopwatch_command, stopwatch)
+    # Control before setting, for the same reason timers do it: "cancel my 7am
+    # reminder" must not read as a new one.
+    r.register("remind_control", parse_reminder_control, remind_control)
+    r.register("remind", parse_reminder_request, remind)
     r.register("clock", parse_clock_request, clock)
     r.register("network", parse_network_request, network)
     r.register("help", parse_help_request, help_me)

@@ -21,6 +21,9 @@ def _command_handler(orchestrator, config):
         cmd = command.get("cmd")
         if cmd == "say":
             await orchestrator.inject_text(str(command.get("text", "")))
+        elif cmd == "announce":
+            # A reminder firing from Task Scheduler, not the frontend (6.4).
+            await orchestrator.announce(str(command.get("text", "")))
         elif cmd == "mute":
             await orchestrator.set_muted(bool(command.get("on", True)))
         elif cmd == "tts_speed":
