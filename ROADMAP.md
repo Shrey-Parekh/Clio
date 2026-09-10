@@ -362,7 +362,12 @@
 
   ## Phase 6 - Knowledge and accounts
 
-  - [ ] **6.1** Web search, fetch and summarise
+  - [x] **6.1** Web search, fetch and summarise - `clio/capabilities/web.py`, through Tavily. "Search for", "look up", "google" and "find out" run a search; a link typed into the chat window with "summarise" or "read" (or pasted on its own) is read through Tavily's extract endpoint. Either way her own model answers in two or three spoken sentences from what came back.
+    - **The source always runs.** Groq's compound models were tried first (same key, their own rate limit): asked plainly, `compound-mini` skipped the search and answered from memory - two runs gave two different dates for the same eclipse. Told to search, all four attempts on `compound-mini` and `compound` failed with 413. Gemini's Google Search grounding needs a key that wasn't set, and its terms require showing Google's Search Suggestions with every grounded answer, awkward for voice. Brave no longer has a free plan. Tavily: 1,000 free searches a month, no card, results already cleaned up for a model.
+    - **Sized for the token budget.** Five results, each snippet cut to 700 characters, a page to 6,000, so a search fits inside the chat model's 8,000 tokens a minute. Answered on the default tier; sources are logged, not spoken.
+    - **Asked for, never guessed.** A question that could use the web still goes to the conversation model; "look it up" searches the question before it. Registered ahead of `files` ("find out who won" is not a file lookup), Free tier.
+    - **Every failure is said.** No key, a rejected key (401), a used-up plan (432/433), a rate limit (429) and a network drop each get a plain sentence; nothing raises out of the turn.
+    - Needs `TAVILY_API_KEY` in `.env` (free at tavily.com). Tested with Tavily faked and `post_json` against a local server (`tests/test_web.py`); **not yet run against the live API**, since no key was set.
   - [ ] **6.2** News briefing - on demand, not scheduled spam
   - [ ] **6.3** Calendar - read first, then create with confirmation
   - [ ] **6.4** Alarms, reminders and scheduling - via Windows Task Scheduler, surviving restarts

@@ -33,6 +33,10 @@ from clio.capabilities.stopwatch import parse_stopwatch_command
 from clio.capabilities.system import describe_system, parse_system_query
 from clio.capabilities.timer import parse_timer_command, parse_timer_control
 from clio.capabilities.weather import describe_weather, is_weather_query
+from clio.capabilities.web import (
+    WebRequest, answer as web_answer, explain_failure as web_failure, parse_web_request,
+)
+from clio.core.errors import report_error
 from clio.core.logging import get_logger
 
 log = get_logger("clio.registry")
@@ -121,6 +125,28 @@ def register_capabilities(o) -> None:
         spoken = await asyncio.to_thread(o._clipboard.replace, original, result.strip())
         return f"{spoken} Did that one locally, it looked like a key." if sensitive else spoken
 
+    async def web(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        if request.kind == "search" and not request.value:
+            # "Look it up": the question he asked before it.
+            question = next(
+                (m["content"] for m in reversed(o._memory.get_messages())
+                 if m["role"] == "user" and parse_web_request(m["content"]) is None),
+                "",
+            )
+            if not question:
+                return "Look what up? You haven't asked me anything yet."
+            request = WebRequest("search", question)
+        try:
+            spoken, used = await web_answer(request, o._persona_system_prompt, o._llm)
+        except Exception as exc:
+            # Said, not raised: the network failing is ordinary for a search, and
+            # must not end the conversation the way a broken local command does.
+            described = await report_error(o._bus, exc, context="web search", source="clio.capabilities.web")
+            return web_failure(exc) or described.spoken
+        o._intent_used_llm = used
+        return spoken
+
     async def clock(payload: object) -> str:
         kind, value = payload  # type: ignore[misc]
         return clock_answer(kind, value)
@@ -208,6 +234,9 @@ def register_capabilities(o) -> None:
     r.register("clipboard", parse_clipboard_request, clipboard)
     # Before files: "read my notes" isn't a request to read a file called notes.
     r.register("notes", parse_note_request, notes)
+    # Before files and open: "find out who won" isn't a file lookup, and a search
+    # names things ("look up Chrome's release notes") that open would claim.
+    r.register("web", parse_web_request, web, offline=False)
     r.register(
         "weather", lambda t: True if is_weather_query(t) else None, weather, offline=False
     )

@@ -43,6 +43,7 @@ _DESCRIPTIONS = {
     "open": "open apps and folders",
     "files": "find and summarise your files",
     "notes": "take notes",
+    "web": "look things up online",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
     "status": "tell you what's still working when something breaks",

@@ -48,6 +48,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "close": Permission.CONFIRM,  # can lose unsaved work
     "clipboard": Permission.FREE,  # previous contents kept; "put it back" restores
     "notes": Permission.FREE,      # append-only to a plain text file
+    "web": Permission.FREE,        # search and read only, answers out loud
 }
 
 _AFFIRMATIVE = {
