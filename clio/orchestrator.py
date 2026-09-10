@@ -104,7 +104,7 @@ class Orchestrator:
         persona_system_prompt: str,
         follow_up_window_s: float,
         bus: EventBus | None = None,
-        memory_max_tokens: int = 6000,
+        memory_max_tokens: int = 2000,
         store: MemoryStore | None = None,
         recent_turns_on_start: int = 8,
         recall_hits: int = 4,
@@ -493,9 +493,6 @@ class Orchestrator:
                     self._record(role="assistant", content=heard)
                 next_turn = outcome.next_turn
 
-            if turn_used_llm:
-                await self._memory.trim_if_needed()
-
             if next_turn is None:
                 break
             turn_audio = next_turn
@@ -701,6 +698,10 @@ class Orchestrator:
                 await report_error(self._bus, exc, context="memory recall", source="clio.orchestrator")
                 self._memory.set_recalled(None)
 
+        # Trimmed before the call, not after it: this is the path voice, push-to-
+        # talk and typed turns all share, and the prompt going out now is the one
+        # counted against the per-minute token budget.
+        await self._memory.trim_if_needed()
         try:
             reply = await self._llm.complete(self._memory.get_messages())
         except Exception as exc:

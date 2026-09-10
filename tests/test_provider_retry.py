@@ -43,11 +43,29 @@ async def main():
     assert primary.attempts == 3, primary.attempts  # initial + 2 retries
     print("OK  transient error retried then fell back")
 
-    # Rate limit: no retries, straight to the local model that is free and up.
+    # Rate limit on every model: no backoff retries - one try on the fast tier
+    # (its own budget), then the local model.
     primary = Scripted(error=LLMRateLimited("429"))
     assert await collect(FallbackLLMProvider(primary, Scripted(chunks=["local"]))) == "local"
-    assert primary.attempts == 1, primary.attempts
-    print("OK  rate limit skipped retries, fell back immediately")
+    assert primary.attempts == 2, primary.attempts  # default, then fast
+    print("OK  rate limit skipped backoff, tried fast tier, fell back")
+
+    # Rate limit on the big model only (Groq limits per model): the fast tier
+    # answers and the local model is never woken.
+    class BigModelLimited:
+        def __init__(self):
+            self.tiers = []
+
+        async def stream(self, messages, tier="default"):
+            self.tiers.append(tier)
+            if tier != "fast":
+                raise LLMRateLimited("429")
+            yield "small model answer"
+
+    primary, fallback = BigModelLimited(), Scripted(chunks=["local"])
+    assert await collect(FallbackLLMProvider(primary, fallback)) == "small model answer"
+    assert primary.tiers == ["default", "fast"] and fallback.attempts == 0, (primary.tiers, fallback.attempts)
+    print("OK  rate-limited default tier answered by the fast tier, local untouched")
 
     # Permanent error: no retries either.
     primary = Scripted(error=LLMPermanentError("bad model"))

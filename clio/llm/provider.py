@@ -61,7 +61,12 @@ class GroqProvider(LLMProvider):
         if self._client is None:
             from groq import Groq
 
-            self._client = Groq(api_key=Config.secret(self._config.llm.provider_secret_name()))
+            # max_retries=0: the SDK otherwise sleeps out a 429's retry-after
+            # (13-24s in the logs) inside create(), before FallbackLLMProvider
+            # gets the chance to answer another way. Retry policy lives there.
+            self._client = Groq(
+                api_key=Config.secret(self._config.llm.provider_secret_name()), max_retries=0
+            )
         return self._client
 
     async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
@@ -249,6 +254,22 @@ class FallbackLLMProvider(LLMProvider):
                         extra={"extra_fields": {"attempt": attempt + 1, "backoff_s": backoff, "error": str(exc)}},
                     )
                     await asyncio.sleep(backoff)
+
+        # Groq rate-limits per model, so the fast model has its own budget. A 429
+        # on the big one is answered by the small one in about a second, instead
+        # of waiting out the window or trying a local model that may not be up.
+        if isinstance(last_error, LLMRateLimited) and tier != "fast":
+            log.warning("Rate limited, answering on the fast tier", extra={"extra_fields": {"tier": tier}})
+            try:
+                async for chunk in self._primary.stream(messages, "fast"):
+                    emitted = True
+                    self.using_fallback = False
+                    yield chunk
+                return
+            except LLMError as exc:
+                if emitted:
+                    raise
+                last_error = exc
 
         log.error(
             "Primary LLM unavailable, falling back to local model",

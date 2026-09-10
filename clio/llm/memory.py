@@ -27,9 +27,13 @@ class ConversationMemory:
     def __init__(
         self,
         provider: LLMProvider | None = None,
-        max_tokens: int = 6000,
+        # Sized to Groq's free tier: 8,000 tokens a minute per model, counting
+        # the prompt plus the 320 reserved for the reply. At 6,000 prompts grew
+        # to ~4,000 and two turns a minute hit the limit. The persona and chat
+        # template are ~1,300 of every prompt on their own.
+        max_tokens: int = 2000,
         system_prompt: str | None = None,
-        keep_recent_turns: int = 6,
+        keep_recent_turns: int = 3,
         bus: EventBus | None = None,
     ):
         self._provider = provider

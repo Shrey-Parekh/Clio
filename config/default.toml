@@ -20,7 +20,8 @@ effort_default = "low"
 effort_reasoning = "high"
 # Used when Groq is unreachable or the network is down - runs entirely on this machine.
 local_fallback_model = "qwen3:8b"
-local_fallback_host = "http://localhost:11434"
+local_fallback_host = "http://127.0.0.1:11434"   # not "localhost": Windows tries IPv6 first,
+                                                  # so a stopped Ollama took ~4s to fail instead of instantly
 
 [speech]
 tts_engine = "kokoro"     # edge | kokoro | elevenlabs | gemini
