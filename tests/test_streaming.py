@@ -105,6 +105,20 @@ async def main():
     assert len(pulled) == read_at_cancel < 50, (read_at_cancel, len(pulled))
     print("OK  interrupting stops playback and stops reading the model")
 
+    # Cut off before the first sentence even exists - he talks over the pause
+    # while the model is still thinking. This crashed the whole run once.
+    async def thinking_model():
+        await asyncio.sleep(10)
+        yield "Too late."
+
+    engine = fake_engine()
+    speaking = asyncio.ensure_future(engine.speak(thinking_model()))
+    await asyncio.sleep(0.05)
+    engine._cancelled.set()
+    said = await asyncio.wait_for(speaking, timeout=2)
+    assert said == "" and engine.played == [], (said, engine.played)
+    print("OK  interrupted before the first sentence: silent, no crash")
+
     # A finished string still works the way it always did.
     engine = fake_engine()
     assert await engine.speak("One. Two.") == "One. Two." and engine.played == ["One.", "Two."]

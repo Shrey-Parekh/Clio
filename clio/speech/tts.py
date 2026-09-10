@@ -237,12 +237,16 @@ class KokoroSpeechEngine(SpeechEngine):
         get = asyncio.ensure_future(sentences.get())
         cancel_wait = asyncio.ensure_future(self._cancelled.wait())
         try:
-            await asyncio.wait({get, cancel_wait}, return_when=asyncio.FIRST_COMPLETED)
+            done, _pending = await asyncio.wait({get, cancel_wait}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             cancel_wait.cancel()
             if not get.done():
                 get.cancel()
-        return None if get.cancelled() else get.result()
+        # Decided by what finished, not get.cancelled(): cancel() only takes effect
+        # on the next loop step, so right after it the task is neither cancelled nor
+        # done, and reading its result raised - cutting her off before her first
+        # sentence crashed the whole run.
+        return get.result() if get in done else None
 
     async def _next_rendered(self, sentences: asyncio.Queue):
         """(sentence, audio) for the next sentence, or None if the text ended,
