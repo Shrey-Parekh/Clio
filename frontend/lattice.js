@@ -63,6 +63,18 @@
       this._flash = 0;        // divine-flash bloom, decays after a wake/pulse
       this.motes = [];        // embers rising in the void — ascension texture
       for (var mi = 0; mi < 26; mi++) this.motes.push(this._mote(true));
+
+      // film grain — a baked mid-gray noise tile, blitted with 'overlay' each
+      // frame at a jittered offset. Filmic texture over the clean vector iris.
+      var gt = document.createElement('canvas'); gt.width = gt.height = 128;
+      var gc = gt.getContext('2d'), gim = gc.createImageData(128, 128);
+      for (var gp = 0; gp < gim.data.length; gp += 4) {
+        var v = 92 + (Math.random() * 72) | 0;   // spread around neutral 128
+        gim.data[gp] = gim.data[gp + 1] = gim.data[gp + 2] = v; gim.data[gp + 3] = 255;
+      }
+      gc.putImageData(gim, 0, 0);
+      this._grainPat = this.ctx.createPattern(gt, 'repeat');
+
       this.t0 = performance.now(); this.last = this.t0;
       this._prevState = this.state;
 
@@ -203,8 +215,13 @@
       /* ── core glow (blooms on a wake flash) ─────── */
       var flash = this._flash * this._flash;   // ease-in decay
       var glowR = base * (0.9 + flash * 0.55);
+      // molten ember: the core burns hotter (toward #ff7818) as speaking dominates
+      var hot = w.speaking * 0.55;
+      var ember = Math.round(cr + (255 - cr) * hot) + ',' +
+                  Math.round(cg + (120 - cg) * hot) + ',' +
+                  Math.round(cb + (24 - cb) * hot);
       var glow = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(glowR, 6));
-      glow.addColorStop(0, 'rgba(' + rgb + ',' + (0.20 * ink + lvl * 0.12 + flash * 0.55).toFixed(3) + ')');
+      glow.addColorStop(0, 'rgba(' + ember + ',' + (0.20 * ink + lvl * 0.12 + flash * 0.55).toFixed(3) + ')');
       glow.addColorStop(0.45, 'rgba(' + rgb + ',' + (0.05 * ink + flash * 0.18).toFixed(3) + ')');
       glow.addColorStop(1, 'rgba(' + rgb + ',0)');
       ctx.fillStyle = glow;
@@ -220,6 +237,28 @@
         ctx.arc(mo.x * W, mo.y * H, mo.r, 0, TAU);
         ctx.fillStyle = 'rgba(' + rgb + ',' + ma.toFixed(3) + ')';
         ctx.fill();
+      }
+
+      /* ── listening: iridescent bokeh — the hyperpop accent, light frames only ── */
+      if (w.listening > 0.02) {
+        var IRID = [[138, 107, 255], [79, 195, 255], [255, 106, 213]];
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        for (var bk = 0; bk < 6; bk++) {
+          var col = IRID[bk % 3];
+          var ang = ts * 0.15 + bk * (TAU / 6);
+          var rad = base * (1.12 + 0.26 * Math.sin(ts * 0.4 + bk));
+          var bx = cx + Math.cos(ang) * rad, by = cy + Math.sin(ang) * rad * 0.72;
+          var brad = base * (0.20 + 0.06 * Math.sin(ts * 0.7 + bk));
+          var ba = w.listening * (0.11 + 0.05 * Math.sin(ts * 0.9 + bk * 1.3));
+          if (ba < 0.003) continue;
+          var bg = ctx.createRadialGradient(bx, by, 0, bx, by, brad);
+          bg.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + ba.toFixed(3) + ')');
+          bg.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+          ctx.fillStyle = bg;
+          ctx.beginPath(); ctx.arc(bx, by, brad, 0, TAU); ctx.fill();
+        }
+        ctx.restore();
       }
 
       ctx.lineCap = 'round';
@@ -343,6 +382,19 @@
       }
       ctx.fillStyle = this._veil;
       ctx.fillRect(0, 0, W, H);
+
+      /* ── film grain: filmic texture over the clean vector ── */
+      if (this._grainPat) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'overlay';
+        ctx.globalAlpha = still ? 0.035 : 0.055;
+        var jx = still ? 0 : (Math.random() * 128) | 0;
+        var jy = still ? 0 : (Math.random() * 128) | 0;
+        ctx.translate(-jx, -jy);
+        ctx.fillStyle = this._grainPat;
+        ctx.fillRect(jx, jy, W, H);
+        ctx.restore();
+      }
     }
   }
 
