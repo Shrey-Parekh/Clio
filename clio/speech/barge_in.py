@@ -43,7 +43,7 @@ class BargeInSpeaker:
         return self._engine
 
     async def speak(
-        self, text: str, frames: AsyncIterator[np.ndarray], listen_after_s: float = 0.0
+        self, text: str | AsyncIterator[str], frames: AsyncIterator[np.ndarray], listen_after_s: float = 0.0
     ) -> SpeechOutcome:
         """Speak `text` while watching `frames` for the user talking over it. If
         speech finishes first, keep listening up to `listen_after_s` more. One

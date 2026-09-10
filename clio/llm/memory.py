@@ -30,7 +30,7 @@ class ConversationMemory:
         # Sized to Groq's free tier: 8,000 tokens a minute per model, counting
         # the prompt plus the 320 reserved for the reply. At 6,000 prompts grew
         # to ~4,000 and two turns a minute hit the limit. The persona and chat
-        # template are ~1,300 of every prompt on their own.
+        # template alone are ~800 of every prompt.
         max_tokens: int = 2000,
         system_prompt: str | None = None,
         keep_recent_turns: int = 3,

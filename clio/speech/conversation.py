@@ -18,7 +18,7 @@ class ConversationSession:
         self._speaker = speaker
         self._follow_up_window_s = follow_up_window_s
 
-    async def respond(self, text: str, frames: AsyncIterator[np.ndarray]) -> SpeechOutcome:
+    async def respond(self, text: str | AsyncIterator[str], frames: AsyncIterator[np.ndarray]) -> SpeechOutcome:
         """Speak `text` (barge-in throughout), then listen for a follow-up window.
         `outcome.next_turn` carries the next turn's audio, or is None if the window
         elapsed silently and the wake word is needed again."""

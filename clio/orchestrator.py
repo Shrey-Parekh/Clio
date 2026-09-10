@@ -393,11 +393,11 @@ class Orchestrator:
             return
         self._memory.add_user(text)
         self._record(role="user", content=text)
-        reply_text, used_llm = await self._handle_utterance(text)
-        if reply_text:
+        reply, used_llm = await self._stream_utterance(text)
+        if reply:
             # No follow-up window: the next turn is another key-hold, not speech.
             session = ConversationSession(self._speaker, follow_up_window_s=0.0)
-            outcome = await session.respond(reply_text, self._frames)
+            outcome = await session.respond(reply, self._frames)
             heard = (outcome.spoken_text or "").strip()
             if heard:
                 self._memory.add_assistant(heard)
@@ -451,32 +451,36 @@ class Orchestrator:
             await self._emit("clio.transcript", {"role": "user", "text": text})
             await self._emit("clio.state", {"state": "thinking"})
 
-            reply_text, turn_used_llm = await self._handle_utterance(text)
+            reply, turn_used_llm = await self._stream_utterance(text)
             used_llm = used_llm or turn_used_llm
+            streamed = reply is not None and not isinstance(reply, str)
 
-            # Where the time actually goes, so "it felt slow" can be diagnosed
-            # from the log instead of guessed at.
-            log.info(
-                "Reply ready",
-                extra={
-                    "extra_fields": {
-                        "think_s": round(time.monotonic() - heard_at, 2),
-                        "chars": len(reply_text) if reply_text else 0,
-                        "used_llm": turn_used_llm,
-                        **(self._last_usage_fields() if turn_used_llm else {}),
-                    }
-                },
-            )
+            if not streamed:
+                # Where the time actually goes, so "it felt slow" can be diagnosed
+                # from the log instead of guessed at. A streamed reply logs its
+                # own timings once the model has finished.
+                log.info(
+                    "Reply ready",
+                    extra={
+                        "extra_fields": {
+                            "think_s": round(time.monotonic() - heard_at, 2),
+                            "chars": len(reply) if reply else 0,
+                            "used_llm": turn_used_llm,
+                            **(self._last_usage_fields() if turn_used_llm else {}),
+                        }
+                    },
+                )
 
-            if not reply_text:
+            if not reply:
                 # Stop, or an empty reply (lock/sleep/media): say nothing and keep
                 # listening. Speaking an empty string is still a turn with latency.
                 next_turn = await self._listen_silently()
             else:
-                await self._emit("clio.transcript", {"role": "assistant", "text": reply_text})
-                await self._emit("clio.state", {"state": "speaking"})
+                if not streamed:
+                    await self._emit("clio.transcript", {"role": "assistant", "text": reply})
+                    await self._emit("clio.state", {"state": "speaking"})
                 session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
-                outcome = await session.respond(reply_text, self._frames)
+                outcome = await session.respond(reply, self._frames)
 
                 # What was actually said, not generated — barge-in makes them differ.
                 heard = (outcome.spoken_text or "").strip()
@@ -672,18 +676,44 @@ class Orchestrator:
         whether the LLM was used. The caller records the assistant turn
         afterwards, using what was actually spoken.
         """
+        routed = await self._route(text)
+        if routed is not None:
+            return routed
+        await self._prepare_prompt(text)
+        try:
+            reply = await self._llm.complete(self._memory.get_messages())
+        except Exception as exc:
+            described = await report_error(self._bus, exc, context="LLM response", source="clio.orchestrator")
+            return described.spoken, False
+        return self._degraded_prefix() + reply, True
+
+    async def _stream_utterance(self, text: str) -> tuple[str | AsyncIterator[str] | None, bool]:
+        """The spoken counterpart of _handle_utterance. An intent still answers
+        with plain text; an LLM answer comes back as a stream, so speech starts
+        on its first sentence instead of waiting for the whole reply."""
+        routed = await self._route(text)
+        if routed is not None:
+            return routed
+        await self._prepare_prompt(text)
+        return self._reply_stream(self._memory.get_messages()), True
+
+    async def _route(self, text: str) -> tuple[str | None, bool] | None:
+        """A deterministic intent's reply and whether it used the LLM, or None
+        when nothing matched and the model should answer."""
         # Before routing: correcting her is also a normal turn, and gets
         # answered like one - recording it must not swallow the reply.
         self._record_correction(text)
 
         steps = self._router.plan(text)
-        if steps:
-            self._intent_used_llm = False
-            spoken = await self._run_plan(steps)
-            # Most intents are free; summarising a file isn't, and that must be
-            # reported so the session is accounted for.
-            return spoken, self._intent_used_llm
+        if not steps:
+            return None
+        self._intent_used_llm = False
+        spoken = await self._run_plan(steps)
+        # Most intents are free; summarising a file isn't, and that must be
+        # reported so the session is accounted for.
+        return spoken, self._intent_used_llm
 
+    async def _prepare_prompt(self, text: str) -> None:
         # Retrieval happens only on the LLM path - a deterministic command must
         # not touch the store's search or anything else that could cost time.
         if self._store is not None and self._recall_hits > 0:
@@ -702,20 +732,58 @@ class Orchestrator:
         # talk and typed turns all share, and the prompt going out now is the one
         # counted against the per-minute token budget.
         await self._memory.trim_if_needed()
-        try:
-            reply = await self._llm.complete(self._memory.get_messages())
-        except Exception as exc:
-            described = await report_error(self._bus, exc, context="LLM response", source="clio.orchestrator")
-            return described.spoken, False
 
+    def _degraded_prefix(self) -> str:
+        """Said once when the local model starts answering, then quiet until the
+        cloud is back - so the next outage is announced again."""
         if getattr(self._llm, "using_fallback", None) is True:
             if not self._announced_degraded:
                 self._announced_degraded = True
-                reply = f"Heads up, the cloud model is unreachable so I'm on the local one. {reply}"
-        else:
-            self._announced_degraded = False
+                return "Heads up, the cloud model is unreachable so I'm on the local one. "
+            return ""
+        self._announced_degraded = False
+        return ""
 
-        return reply, True
+    async def _reply_stream(self, messages: list[dict]) -> AsyncIterator[str]:
+        """The model's reply as it is written. A failure or the downgrade notice
+        is spoken in-line, as _handle_utterance would say it, so the speaker
+        never sees an exception. Logs timings and publishes the transcript once
+        the model is done."""
+        started = time.monotonic()
+        first_token_s = None
+        parts: list[str] = []
+        try:
+            async for chunk in self._llm.stream(messages):
+                if first_token_s is None:
+                    first_token_s = round(time.monotonic() - started, 2)
+                    await self._emit("clio.state", {"state": "speaking"})
+                    prefix = self._degraded_prefix()
+                    if prefix:
+                        parts.append(prefix)
+                        yield prefix
+                parts.append(chunk)
+                yield chunk
+        except Exception as exc:
+            described = await report_error(self._bus, exc, context="LLM response", source="clio.orchestrator")
+            if first_token_s is None:
+                await self._emit("clio.state", {"state": "speaking"})
+            spoken = f" {described.spoken}" if parts else described.spoken
+            parts.append(spoken)
+            yield spoken
+
+        reply = "".join(parts)
+        log.info(
+            "Reply ready",
+            extra={"extra_fields": {
+                "first_token_s": first_token_s,
+                "think_s": round(time.monotonic() - started, 2),
+                "chars": len(reply),
+                "used_llm": True,
+                "streamed": True,
+                **self._last_usage_fields(),
+            }},
+        )
+        await self._emit("clio.transcript", {"role": "assistant", "text": reply})
 
     def _record(self, role: str, content: str) -> None:
         if self._store is None:

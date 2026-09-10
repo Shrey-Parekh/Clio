@@ -11,6 +11,7 @@ import asyncio
 import os
 import re
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from clio.core.cuda import ensure_cuda_dlls_on_path
@@ -86,10 +87,48 @@ def split_sentences(text: str) -> list[str]:
     return merged
 
 
+def _sentence_end(text: str) -> int:
+    """Where the last complete sentence in a growing buffer ends, or 0 if none
+    has yet. A boundary only counts once the next sentence has started, so the
+    tail is always held back for more text, and "Dr." never ends one - the same
+    abbreviation rule split_sentences merges on."""
+    end = 0
+    for match in _SENTENCE_SPLIT.finditer(text):
+        words = text[: match.start()].rstrip(".!?").split()
+        if words and words[-1].lower() in _ABBREVIATIONS:
+            continue
+        end = match.end()
+    return end
+
+
+async def _feed_sentences(text: str | AsyncIterator[str], out: asyncio.Queue) -> None:
+    """Put speakable sentences on `out` as each one completes, then None. A
+    string is split at once; a stream is split as it grows, so the first
+    sentence can be spoken while the model is still writing the rest."""
+    try:
+        if isinstance(text, str):
+            for sentence in split_sentences(text):
+                out.put_nowait(sentence)
+            return
+        buffer = ""
+        async for chunk in text:
+            buffer += chunk
+            end = _sentence_end(buffer)
+            if end:
+                for sentence in split_sentences(buffer[:end]):
+                    out.put_nowait(sentence)
+                buffer = buffer[end:]
+        for sentence in split_sentences(buffer):
+            out.put_nowait(sentence)
+    finally:
+        out.put_nowait(None)
+
+
 class SpeechEngine(ABC):
     @abstractmethod
-    async def speak(self, text: str) -> str:
-        """Speak sentence by sentence, streaming as each renders. Returns the
+    async def speak(self, text: str | AsyncIterator[str]) -> str:
+        """Speak sentence by sentence as each renders. `text` may be a stream the
+        model is still writing: each sentence is spoken once complete. Returns the
         text actually spoken — all of it, or only the sentences that finished
         playing if cancel() cut it short, so callers never record more than the
         user heard."""
@@ -192,41 +231,61 @@ class KokoroSpeechEngine(SpeechEngine):
             await report_error(self._bus, exc, context=f"TTS synthesis for {sentence!r}", source="clio.speech.tts")
             return None
 
-    async def speak(self, text: str) -> str:
-        sentences = split_sentences(text)
-        if not sentences:
-            return ""
+    async def _next_sentence(self, sentences: asyncio.Queue) -> str | None:
+        """The next complete sentence, or None once the text has ended or
+        cancel() fired while waiting for the model to write more."""
+        get = asyncio.ensure_future(sentences.get())
+        cancel_wait = asyncio.ensure_future(self._cancelled.wait())
+        try:
+            await asyncio.wait({get, cancel_wait}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            cancel_wait.cancel()
+            if not get.done():
+                get.cancel()
+        return None if get.cancelled() else get.result()
 
+    async def _next_rendered(self, sentences: asyncio.Queue):
+        """(sentence, audio) for the next sentence, or None if the text ended,
+        cancel() fired, or synthesis failed."""
+        sentence = await self._next_sentence(sentences)
+        if sentence is None:
+            return None
+        audio = await self._render_racing_cancel(sentence)
+        return None if audio is None else (sentence, audio)
+
+    async def speak(self, text: str | AsyncIterator[str]) -> str:
         self._cancelled.clear()
+        # Read eagerly into an unbounded queue, so the model never waits on
+        # playback and the whole reply is known as early as possible.
+        sentences: asyncio.Queue = asyncio.Queue()
+        reader = asyncio.ensure_future(_feed_sentences(text, sentences))
         spoken: list[str] = []
+        ahead = None
+        try:
+            current = await self._next_rendered(sentences)
+            while current is not None and not self._cancelled.is_set():
+                sentence, (samples, sample_rate) = current
+                # Render the next sentence while this one plays.
+                ahead = asyncio.ensure_future(self._next_rendered(sentences))
 
-        next_audio = await self._render_racing_cancel(sentences[0])
-        if next_audio is None:
-            return ""
-
-        for i in range(len(sentences)):
-            if self._cancelled.is_set():
-                break
-
-            samples, sample_rate = next_audio
-
-            render_coro = None
-            if i + 1 < len(sentences):
-                render_coro = asyncio.ensure_future(self._render_racing_cancel(sentences[i + 1]))
-
-            # Counted as spoken only once fully played — under-report by a
-            # sentence rather than claim one the user never heard.
-            if await self._play(samples, sample_rate):
-                spoken.append(sentences[i])
-
-            if render_coro is not None:
+                # Counted as spoken only once fully played — under-report by a
+                # sentence rather than claim one the user never heard.
+                if await self._play(samples, sample_rate):
+                    spoken.append(sentence)
                 if self._cancelled.is_set():
-                    render_coro.cancel()
                     break
-                next_audio = await render_coro
-                if next_audio is None:
-                    break
+                current = await ahead
+                ahead = None
+        finally:
+            # Cut off: stop rendering ahead and stop reading the model.
+            for task in (ahead, reader):
+                if task is not None and not task.done():
+                    task.cancel()
 
+        if reader.done() and not reader.cancelled() and reader.exception() is not None:
+            await report_error(
+                self._bus, reader.exception(), context="reading the reply to speak", source="clio.speech.tts"
+            )
         return " ".join(spoken)
 
     async def _play(self, samples, sample_rate: int) -> bool:
