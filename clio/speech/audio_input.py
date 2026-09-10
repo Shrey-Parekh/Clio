@@ -52,8 +52,16 @@ class VoiceActivityDetector:
         return float(out[0][0])
 
 
+# A live mic sends a block every 32ms even in a silent room, so this long with
+# nothing while a reader waits means the stream has stalled. Seen on a USB mic:
+# the driver hiccuped, recovered for new streams, and left the open one dead,
+# so the wake word went deaf with no error anywhere.
+_STALL_S = 3.0
+
+
 class AudioCapture:
-    """Mic capture as an async stream of FRAME_SAMPLES float32 frames at SAMPLE_RATE."""
+    """Mic capture as an async stream of FRAME_SAMPLES float32 frames at SAMPLE_RATE.
+    Reopens the stream if it stops delivering, so a driver hiccup heals itself."""
 
     def __init__(self, device: int | str | None = None):
         self._device = device
@@ -69,17 +77,32 @@ class AudioCapture:
                 log.warning("Audio input status", extra={"extra_fields": {"status": str(status)}})
             loop.call_soon_threadsafe(queue.put_nowait, indata[:, 0].copy())
 
-        with sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            blocksize=FRAME_SAMPLES,
-            channels=1,
-            dtype="float32",
-            device=self._device,
-            callback=_callback,
-        ):
-            while True:
-                frame = await queue.get()
-                yield frame
+        while True:
+            stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                blocksize=FRAME_SAMPLES,
+                channels=1,
+                dtype="float32",
+                device=self._device,
+                callback=_callback,
+            )
+            stream.start()
+            try:
+                while True:
+                    try:
+                        frame = await asyncio.wait_for(queue.get(), timeout=_STALL_S)
+                    except asyncio.TimeoutError:
+                        log.warning(
+                            "Microphone stopped sending audio, reopening it",
+                            extra={"extra_fields": {"device": self._device, "silent_s": _STALL_S}},
+                        )
+                        break
+                    yield frame
+            finally:
+                # Closed off the loop: a stalled driver can hang close(), and that
+                # must not freeze Clio. ponytail: a close that never returns keeps
+                # one executor thread, fine unless the mic stalls constantly.
+                loop.run_in_executor(None, stream.close)
 
 
 class TurnDetector:
