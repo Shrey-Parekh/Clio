@@ -193,6 +193,22 @@ roots = [
 # clio = "C:/Users/Shrey/Documents/Clio"
 # the roadmap = "C:/Users/Shrey/Documents/Clio/ROADMAP.md"
 
+[email]
+# Reading Gmail over IMAP (6.6). The address and app password live in .env, never
+# here. Unread means recent and in the Primary tab: the account holds ten thousand
+# unread messages, so "how many unread" answering with all of them would be true
+# and useless. Ask "how many in total" for the lifetime number.
+window_days = 2
+category = "primary"          # "" reads every unread message, whatever the tab
+# Senders that always need him, decided here without asking the model. Anything
+# not listed is judged by the model instead.
+important_senders = []
+important_domains = []
+# How many unsorted messages go to the model in one pass, and how much of each
+# one. extract_chars is the amount of a message that leaves this machine.
+max_triage = 15
+extract_chars = 500
+
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR
 core_port = 8765

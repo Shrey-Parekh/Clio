@@ -47,6 +47,21 @@ Counts are arithmetic and never leave the machine. Triage and summaries call the
 model with a trimmed batch. The 500-character cut is also what keeps the prompt
 inside the 8,000-tokens-a-minute limit on the free tier.
 
+## Scope: which unread
+
+Found by probing the real account on 2026-09-11: **10,063 unread, 2,580 of them
+in Primary.** His inbox is an archive, not a queue. "How many unread" answering
+"ten thousand" is true and useless, and triage over ten thousand messages is not
+a feature.
+
+So unread means **unread in Primary, from the last two days**, set in config as
+`window_days` and `category`. The lifetime total is available when asked for
+("in total"), never as the headline:
+
+> "Nine in the last couple of days. Three need you."
+
+This is the difference between a mailbox report and something he can act on.
+
 ## Components
 
 ### `clio/core/mailbox.py` — the connection
@@ -69,8 +84,9 @@ class Message:
 
 Four functions, all read-only:
 
-- `unread_count() -> int`
-- `unread(limit: int = 25) -> list[Message]`
+- `unread_count() -> int` — in scope: Primary, inside the window.
+- `total_unread() -> int` — the lifetime number, for "how many in total".
+- `unread(limit: int = 25) -> list[Message]` — in scope, newest first.
 - `search(query: str, limit: int = 10) -> list[Message]` — Gmail search syntax
   through `X-GM-RAW`, so `from:priya`, `newer_than:1d` and `category:primary`
   all work.
@@ -100,7 +116,16 @@ raised.
 
 Connections carry a 15-second socket timeout. Credentials come from `.env`:
 `GMAIL_ADDRESS` and `GMAIL_APP_PASSWORD`. Neither is ever logged, spoken or
-written to disk by Clio.
+written to disk by Clio. Whitespace is stripped from both: Google displays an
+app password in four groups of four, so it is pasted with spaces more often than
+not, and a login failure over an invisible space would be a miserable thing to
+debug.
+
+**Probed live on 2026-09-11, before any of this was written:** login with the
+app password works, `SELECT` in readonly mode works, `X-GM-RAW` accepts Gmail
+search syntax (`is:unread category:primary`, `newer_than:1d`), and MIME-encoded
+From, Subject and Date headers decode. The transport rests on verified
+behaviour, not on assumption.
 
 ### `clio/capabilities/email.py` — the voice side
 
@@ -145,6 +170,8 @@ important_senders = []     # addresses that always need him
 important_domains = []     # e.g. his college domain
 max_triage = 15            # messages sent to the model in one pass
 extract_chars = 500        # how much of a message may reach Groq
+window_days = 2            # how far back "unread" reaches
+category = "primary"       # Gmail tab; "" means every unread message
 ```
 
 A message whose address matches a rule is **needs you**, decided locally, with

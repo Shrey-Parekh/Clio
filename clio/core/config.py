@@ -171,6 +171,24 @@ class PushToTalkConfig:
 
 
 @dataclass(frozen=True)
+class EmailConfig:
+    """Reading Gmail (6.6). Every field is defaulted, so a config file predating
+    this section still starts - without email, not with a broken one.
+
+    `window_days` and `category` are what stop "how many unread" answering with
+    ten thousand: unread means recent and in the Primary tab. `extract_chars`
+    decides how much of a message reaches the cloud model, which is why it is a
+    setting rather than a constant."""
+
+    important_senders: tuple[str, ...] = ()
+    important_domains: tuple[str, ...] = ()
+    max_triage: int = 15
+    extract_chars: int = 500
+    window_days: int = 2
+    category: str = "primary"
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -196,6 +214,7 @@ class Config:
     # The only folders she may look inside. Empty means she says she has
     # nowhere to look, rather than defaulting to the whole user profile.
     file_roots: tuple[Path, ...]
+    email: EmailConfig
     runtime: RuntimeConfig
 
     @staticmethod
@@ -359,6 +378,15 @@ def load_config(root: Path | None = None) -> Config:
             Path(os.path.expandvars(str(r))).expanduser()
             for r in raw.get("files", {}).get("roots", [])
         )
+        email_raw = raw.get("email", {})
+        email = EmailConfig(
+            important_senders=tuple(str(s).lower() for s in email_raw.get("important_senders", [])),
+            important_domains=tuple(str(d).lower() for d in email_raw.get("important_domains", [])),
+            max_triage=int(email_raw.get("max_triage", 15)),
+            extract_chars=int(email_raw.get("extract_chars", 500)),
+            window_days=int(email_raw.get("window_days", 2)),
+            category=str(email_raw.get("category", "primary")).strip().lower(),
+        )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),
             core_port=int(_env_override("CLIO_CORE_PORT", str(raw["runtime"]["core_port"]))),
@@ -382,6 +410,7 @@ def load_config(root: Path | None = None) -> Config:
         push_to_talk=push_to_talk,
         shortcuts=shortcuts,
         file_roots=file_roots,
+        email=email,
         runtime=runtime,
     )
     _validate(config)

@@ -52,6 +52,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "notes": Permission.FREE,      # append-only to a plain text file
     "tasks": Permission.FREE,      # ticking off is undone by saying the task again
     "web": Permission.FREE,        # search and read only, answers out loud
+    "email": Permission.FREE,      # reads the mailbox; cannot send, delete or mark read
 }
 
 _AFFIRMATIVE = {

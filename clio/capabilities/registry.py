@@ -34,6 +34,9 @@ from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.stopwatch import parse_stopwatch_command
+from clio.capabilities.email import (
+    explain_failure as email_failure, parse_email_request,
+)
 from clio.capabilities.system import describe_system, parse_system_query
 from clio.capabilities.tasks import parse_task_request
 from clio.capabilities.timer import parse_timer_command, parse_timer_control
@@ -166,6 +169,22 @@ def register_capabilities(o) -> None:
         o._intent_used_llm = used
         return spoken
 
+    async def email(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        try:
+            spoken, used = await o._email.answer(
+                request, o._llm, o._persona_system_prompt
+            )
+        except Exception as exc:
+            # Said, not raised: a mailbox that won't open is ordinary, and must
+            # not end the conversation.
+            described = await report_error(
+                o._bus, exc, context="email", source="clio.capabilities.email"
+            )
+            return email_failure(exc) or described.spoken
+        o._intent_used_llm = used
+        return spoken
+
     async def remind(payload: object) -> str:
         reminder = payload  # type: ignore[assignment]
         lead_s = (reminder.when - datetime.now()).total_seconds()
@@ -279,6 +298,8 @@ def register_capabilities(o) -> None:
     # Before files and open: "find out who won" isn't a file lookup, and a search
     # names things ("look up Chrome's release notes") that open would claim.
     r.register("web", parse_web_request, web, offline=False)
+    # Before files: "what's in my inbox" is not a request to list a folder.
+    r.register("email", parse_email_request, email, offline=False)
     r.register(
         "weather", lambda t: True if is_weather_query(t) else None, weather, offline=False
     )
