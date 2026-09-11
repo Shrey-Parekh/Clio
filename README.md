@@ -26,7 +26,7 @@ python -m clio
 | Path | Purpose |
 |---|---|
 | `clio/` | Core service - voice loop, LLM harness, capability registry |
-| `ui/` | Desktop frontend - tray, overlay, chat window |
+| `frontend/` | Desktop frontend (Tauri) - tray, HUD, chat panel |
 | `config/` | Persona, voice, and capability configuration |
 | `docs/` | Design notes written as each phase lands |
 
