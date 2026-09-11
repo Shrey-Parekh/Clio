@@ -15,6 +15,7 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.tasks import TaskList
 from clio.capabilities.timer import TimerCapability
 from clio.core.config import (
     Config, ConfigError, DictationConfig, HotkeyConfig, LocationConfig, MouseConfig,
@@ -119,6 +120,7 @@ class Orchestrator:
         shortcuts: dict[str, str] | None = None,
         file_roots: tuple = (),
         notes_path: str | None = None,
+        tasks_path: str | None = None,
         memory_root: str | None = None,
         core_port: int = 8765,
     ):
@@ -132,6 +134,7 @@ class Orchestrator:
         self._consolidating: asyncio.Future | None = None
         self._clipboard = Clipboard()
         self._notes = NoteBook(notes_path or "memory/notes.md")
+        self._task_list = TaskList(tasks_path or "memory/tasks.md")
         # Reminders live in Task Scheduler, not here; this only needs to know
         # where the words are kept and which port to speak through when one fires.
         self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)
@@ -911,6 +914,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         shortcuts=config.shortcuts,
         file_roots=config.file_roots,
         notes_path=str(Path(config.memory.root) / "notes.md"),
+        tasks_path=str(Path(config.memory.root) / "tasks.md"),
         memory_root=config.memory.root,
         core_port=config.runtime.core_port,
     )

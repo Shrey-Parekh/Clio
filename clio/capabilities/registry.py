@@ -35,6 +35,7 @@ from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.stopwatch import parse_stopwatch_command
 from clio.capabilities.system import describe_system, parse_system_query
+from clio.capabilities.tasks import parse_task_request
 from clio.capabilities.timer import parse_timer_command, parse_timer_control
 from clio.capabilities.weather import describe_weather, is_weather_query
 from clio.capabilities.web import (
@@ -91,6 +92,18 @@ def register_capabilities(o) -> None:
             if not content:
                 return "Note what down? Nothing's been said yet."
         return o._notes.add(content)
+
+    async def tasks(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        if request.kind == "list":
+            return o._task_list.listing()
+        if request.kind == "done":
+            return o._task_list.tick(request.text)
+        spoken, added = o._task_list.add(request.text)
+        # Offered, not set: a deadline on a task doesn't mean he wants an alarm for it.
+        if added and parse_reminder_request(f"remind me to {request.text}") is not None:
+            spoken += " It has a time on it, so ask if you want a reminder as well."
+        return spoken
 
     async def clipboard(payload: object) -> str:
         request = payload  # type: ignore[assignment]
@@ -258,6 +271,9 @@ def register_capabilities(o) -> None:
     r.register("voice", parse_voice_request, voice)
     r.register("chance", parse_chance_request, chance)
     r.register("clipboard", parse_clipboard_request, clipboard)
+    # Before notes and files: "write X on my list" isn't a note, and "list my
+    # tasks" isn't a folder listing.
+    r.register("tasks", parse_task_request, tasks)
     # Before files: "read my notes" isn't a request to read a file called notes.
     r.register("notes", parse_note_request, notes)
     # Before files and open: "find out who won" isn't a file lookup, and a search

@@ -45,6 +45,7 @@ _DESCRIPTIONS = {
     "open": "open apps and folders",
     "files": "find and summarise your files",
     "notes": "take notes",
+    "tasks": "keep your to-do list",
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",

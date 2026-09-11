@@ -381,11 +381,16 @@
     - When one fires, `clio/remind.py` toasts it and, if she happens to be running, asks her to say it through the same announcement queue timers use.
     - **Live-verified:** a reminder set through the real code path fired at 02:48:01 with Clio closed, exit code 0, toast shown. That run also caught a real bug - a spent one-off task stays in Task Scheduler, so it was being read back as still upcoming. Now swept whenever the list is touched.
     - **Known ceiling:** a reminder due while the machine is off is missed, not caught up. `schtasks` can't set that flag; registering the task from XML could.
-  - [ ] **6.5** Task list - "add buy printer ink to my list", "what's on my list", "tick off the invoice".
-    - **A local file first:** `memory/tasks.md`, markdown checkboxes, beside `notes.md`. Same rule as 3.8: plain text he can edit with no Clio running, and file search finds it.
+  - [x] **6.5** Task list - `clio/capabilities/tasks.py`. "Add buy printer ink to my list", "put call the landlord on my to-do list", "what's on my list", "what do I still have to do", "tick off the invoice", "cross it off my list", "mark the passport as done".
+    - **A local file:** `memory/tasks.md`, one `- [ ]` checkbox per task, beside `notes.md`. Same rule as 3.8: plain text he can edit with no Clio running, and file search finds it. Lines that aren't checkboxes are left exactly as he wrote them.
     - No task service is in use (same finding as 6.3), so there is nothing to sync with. Microsoft To Do, Todoist or Google Tasks slot in behind the same intents if one is adopted.
-    - A task with a time ("pay rent by Friday at 5") offers to set a 6.4 reminder as well. It does not set one silently.
-    - Deterministic and FREE. Ticking off is reversible, so it is not CONFIRM.
+    - **Not append-only, unlike notes.** Ticking off rewrites a line, so every write goes to a temp file and is renamed into place. A crash leaves the old list or the new one, never half of each.
+    - **Nothing deletes a task.** A ticked task stays in the file until he removes it by hand. Saying a ticked task again puts it back, which is the undo, and is why this is FREE rather than CONFIRM.
+    - Ticking off matches part of a name: "the invoice" reaches "send the invoice to Priya". Two open tasks that both match get a question back ("renew the passport or renew the car insurance?"), and nothing changes until he says which.
+    - **Only "my list", "the to-do list" and "my tasks".** "Add milk to my shopping list" and "add salt to the list of ingredients" fall through to conversation rather than landing on this list unasked.
+    - **The reminder offer is a hint, not a question.** A task with a time on it ("pay rent by Friday at 5") says it has a time and to ask if he wants a reminder. It never sets one silently. It does not ask yes-or-no because `_confirm` listens on the microphone, and the chat window has no microphone stream, so a spoken question would break typed use.
+    - Registered before `notes` and `files`: "write buy stamps on my list" is not a note, and "list my tasks" is not a folder listing. Asserted through the real router.
+    - Zero model calls. Standing check at `tests/test_tasks.py`. Not yet tried by voice.
   - [ ] **6.6** Email, read - unread counts, triage, summarisation.
     - Gmail API with a read-only OAuth scope first. The token is stored locally and gitignored. Send scope is requested only when 6.8 lands.
     - "How many unread", "anything from college", "what needs a reply", "summarise the thread from Priya".
