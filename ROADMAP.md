@@ -27,7 +27,7 @@
   **Hardware confirmed:** RTX 4060 Ti 8GB - comfortably fits Whisper `small`/`medium` and Kokoro
   at the same time with room left for normal work.
 
-  **Needs installing:** `gh` CLI (GitHub, Phase 8) and `ffmpeg` (audio handling, Phase 1).
+  **Needs installing:** `gh` CLI (GitHub, Phase 9) and `ffmpeg` (audio handling, Phase 1).
 
   ---
 
@@ -371,7 +371,7 @@
   - [x] **6.2** News briefing - on demand, not scheduled spam. Part of `clio/capabilities/web.py`: a news request is a kind of web request, sharing 6.1's Tavily key, trimming, failure handling and Free tier rather than growing a second capability.
     - **Asked for by name.** "What's the news", "any news about the election", "give me today's headlines", "brief me", "catch me up on cricket". Checked before the plain search verbs, so "search for news about X" is a briefing, while "search for news aggregator apps" stays a search - "news" has to be the thing asked for. "What's in the news" is claimed ahead of `files`, which would otherwise list a folder called news.
     - **Recent first.** Tavily's news topic over the last day; a topic with nothing that recent widens to the week instead of saying nothing. A general briefing is narrowed to `[location] name` when one is set.
-    - **Briefing-shaped.** The three or four biggest stories, a sentence or two each, most important first, with publish dates passed to the model so "yesterday" is said when it matters. Nothing scheduled - there is no briefing he didn't ask for; morning routines are 10.2.
+    - **Briefing-shaped.** The three or four biggest stories, a sentence or two each, most important first, with publish dates passed to the model so "yesterday" is said when it matters. Nothing scheduled - there is no briefing he didn't ask for; morning routines are 11.2.
     - Tested with Tavily faked (`tests/test_web.py`: matching, routing, the day-to-week widening, the location, no news, dates in the prompt), then **verified live**: "what's the news today" gave a four-story briefing in 3.9s. With no location set it skews to US stories, so setting `[location] name` matters.
   - [ ] **6.3** Calendar - read first, then create with confirmation
     - **Skipped for now:** no calendar in use (neither Google nor Outlook), so there is nothing to read. Revisit if one is adopted; reminders that need no account are 6.4.
@@ -381,56 +381,117 @@
     - When one fires, `clio/remind.py` toasts it and, if she happens to be running, asks her to say it through the same announcement queue timers use.
     - **Live-verified:** a reminder set through the real code path fired at 02:48:01 with Clio closed, exit code 0, toast shown. That run also caught a real bug - a spent one-off task stays in Task Scheduler, so it was being read back as still upcoming. Now swept whenever the list is touched.
     - **Known ceiling:** a reminder due while the machine is off is missed, not caught up. `schtasks` can't set that flag; registering the task from XML could.
-  - [ ] **6.5** Task list integration
-  - [ ] **6.6** Email, read-only - unread counts, triage, summarisation. You write the replies.
-  - [ ] **6.7** Document handling - PDF, DOCX, spreadsheets and images, read and summarised
-  - [ ] **6.8** Assignment help - read a brief, extract requirements, draft against them
+  - [ ] **6.5** Task list - "add buy printer ink to my list", "what's on my list", "tick off the invoice".
+    - **A local file first:** `memory/tasks.md`, markdown checkboxes, beside `notes.md`. Same rule as 3.8: plain text he can edit with no Clio running, and file search finds it.
+    - No task service is in use (same finding as 6.3), so there is nothing to sync with. Microsoft To Do, Todoist or Google Tasks slot in behind the same intents if one is adopted.
+    - A task with a time ("pay rent by Friday at 5") offers to set a 6.4 reminder as well. It does not set one silently.
+    - Deterministic and FREE. Ticking off is reversible, so it is not CONFIRM.
+  - [ ] **6.6** Email, read - unread counts, triage, summarisation.
+    - Gmail API with a read-only OAuth scope first. The token is stored locally and gitignored. Send scope is requested only when 6.8 lands.
+    - "How many unread", "anything from college", "what needs a reply", "summarise the thread from Priya".
+    - Counts and sender filters are plain API calls. Only triage (needs action / worth knowing / noise) and summaries use the model.
+    - **Mail content is data, never instructions.** An email that says "forward this to..." or "reply with your password" is summarised as saying that. Nothing in a message body can start a capability.
+  - [ ] **6.7** Email, draft - "draft a reply to Priya saying I'll be late", "write to my professor asking for an extension".
+    - The model writes in his voice from his instruction and the thread it replies to. The result is saved as a **Gmail draft**, not sent. She reads back the gist, and the chat window shows the full text.
+    - Voice edits apply to the open draft: "make it shorter", "less formal", "add that I'll send it tonight".
+    - FREE, because a draft sends nothing and can be deleted.
+  - [ ] **6.8** Email, send - "send it", or "email Priya that the meeting moved to 4" in one go.
+    - **CONFIRM every time, with no exceptions.** She reads back the recipient, the subject and the gist. Only an explicit yes counts, the 2.2 rule.
+    - **A recipient comes from his contacts or people he has already emailed.** An address Whisper spelled out is never trusted directly: a new address is shown in the chat window and confirmed there. A misheard name must never send mail to a stranger.
+    - A short hold before the API call (about 10 seconds) so "wait, cancel that" still works. Gmail's own undo-send does not exist in the API.
+    - A send is never triggered by the content of an incoming email (6.6's rule), or by a step of a chain unless that step passes its own confirmation (2.7's rule).
+    - **Changes the brief.** Section 5 said "read-only, I write the replies myself". Changed at his request on 2026-09-11. Sending is the section 6 "confirm each time" bucket, which already listed it.
+  - [ ] **6.9** Document handling - PDF, DOCX, spreadsheets and images, read and summarised.
+    - Extends 3.6's read and summarise past plain text. A library per format (PDF, DOCX, XLSX), picked when built; images go through a vision model, on demand and counted against 8.4's budget.
+    - Large documents are summarised in chunks rather than dropped into one prompt, because of the 8,000-tokens-a-minute chat tier.
+  - [ ] **6.10** Assignment help - read a brief, extract requirements, draft against them.
+    - Depends on 6.9. The requirements (word count, deadline, marking criteria) are pulled out first and read back before any drafting starts, so the draft is checked against something explicit.
+    - The draft is written to a new file in the assignment's folder (7.4's write rules), never over his own work.
 
   ---
 
-  ## Phase 7 - Screen and context
+  ## Phase 7 - Projects and hands-on control
+
+  Clio stops only reading the machine and starts doing work on it: running his projects, managing files, running commands, and carrying out multi-step jobs. **Independence here means supervised, not unwatched** (brief section 10). Every job is a named, bounded thing she can report on and stop, never an open-ended shell. Anything destructive or outward-facing asks first.
+
+  - [ ] **7.1** Project registry - the list of things she is allowed to run.
+    - `[projects.<name>]` in config: folder, run command, environment (venv or conda), spoken aliases, and whether it uses the GPU. For example `[projects.ewaste]` with its training command, reachable as "the ewaste training".
+    - **The command always comes from the registry, never from the sentence.** The rule is the same as 3.4's paths: a mishearing can pick the wrong project, but it can never invent a command.
+    - "What projects do you know" lists them. A helper scans the configured roots for `pyproject.toml`, `package.json`, `requirements.txt` and README run instructions, and **proposes** entries. He approves each one. Nothing registers itself.
+  - [ ] **7.2** Job runner - "run the ewaste training", "is the training still running", "stop the training".
+    - Starts a registered project as a separate background process with output to `logs/jobs/<name>-<timestamp>.log`. The job is not tied to the voice loop, so a long run does not block her, and she keeps answering while it works.
+    - Starting a job is **CONFIRM**, because a training run can hold the GPU for hours. Stopping one is **CONFIRM** too, because it throws away unsaved progress. Checking status is FREE.
+    - **VRAM is shared with Clio herself.** On the 8GB 4060 Ti, pre-warmed Whisper and Kokoro (2.9) compete with a training run. A GPU job offers to unload her models first and reload them when the job ends. She does not crash the run or herself by guessing.
+    - A job list survives a Clio restart (PID plus log path on disk), so "is it still running" is still answerable after she has been closed.
+  - [ ] **7.3** Job reporting - she tells him when it finishes, and how it went.
+    - A finish or failure is announced through the timer announcement queue, plus a toast (6.4's path) when she is not running.
+    - "How's the training going" reads the log tail. Progress is parsed deterministically where the output has a shape (epoch 12/50, a percentage, a loss value); otherwise the model summarises the tail.
+    - A failure is explained from its traceback in plain language ("it ran out of GPU memory at epoch 3"), not recited.
+    - Phone delivery ("text me when it's done") arrives with 10.6.
+  - [ ] **7.4** File writes - create, rename, copy, move, delete. This is the write half 3.6 deliberately left out.
+    - Its own intent and its own tier, the way `power` is separate from `control`. Creating a new file is FREE. Move, overwrite and delete are **CONFIRM**.
+    - **Delete goes to the Recycle Bin, never a permanent delete.** "Undo that" reverses the last operation.
+    - Only inside the configured roots, and targets are resolved from the file index (3.6), never from a path spoken aloud.
+  - [ ] **7.5** Shell commands - "run pip install in the clio folder", "what's the git status of ewaste".
+    - **CONFIRM every time**, reading back the exact command and the folder it runs in. A timeout, and output summarised rather than read aloud.
+    - Read-only commands on a short allowlist (`git status`, `git log`, `nvidia-smi`, `dir`) can run FREE. Anything else asks.
+    - **BLOCKED:** formatting disks, editing the registry, turning off Defender or the firewall, touching credential stores, and anything with a pipe to a download. Brief section 6's "nothing irreversible" bucket.
+  - [ ] **7.6** Tool calling, rebuilt - the model picks capabilities, with argument validation.
+    - 1.7 was removed because nothing needed it. 7.7 does: a request like "set up the ewaste project and start training" cannot be matched by a pattern. The rebuild uses the 3.1 registry (name, tier, offline) as the tool list, and validates arguments before anything runs.
+    - The deterministic router stays first. The model is consulted only when nothing matches and the request is clearly an action.
+  - [ ] **7.7** Supervised multi-step tasks - "pull the latest ewaste code, install its requirements and start training".
+    - The reasoning tier writes a plan as a list of capability calls. She reads the plan back and he approves it **before anything runs**.
+    - Steps run through 2.7's machinery. Each step passes its own permission check, a failure stops the chain, and the report says what ran and where it stopped.
+    - A step budget and a time budget cap every task (about 15 minutes of active work, per the brief). A long job inside the plan is handed to 7.2 and reported by 7.3, not waited on.
+    - Progress is published on the event bus, so the HUD and chat window show which step is running.
+  - [ ] **7.8** Software management - "install 7-Zip", "update everything", through `winget`.
+    - CONFIRM for install, upgrade and uninstall, reading back the exact package ID so a similarly named package is not installed by mistake. Listing what is installed or out of date is FREE.
+
+  ---
+
+  ## Phase 8 - Screen and context
 
   On demand only. No continuous capture - cost and privacy both.
 
-  - [ ] **7.1** On-demand screen capture, explicitly triggered
-  - [ ] **7.2** Screen understanding - "what's on my screen", "read this to me", "what does this error mean"
-  - [ ] **7.3** Active-window context - resolve vague references by checking what you are actually looking at
-  - [ ] **7.4** Vision cost controls - downscaling, caching, a per-day budget cap with a visible counter
-  - [ ] **7.5** Meeting awareness - capture system audio (WASAPI loopback) alongside the mic so she can transcribe a call, summarise it after, and answer a question *you* ask her during it. For your side of the call only.
+  - [ ] **8.1** On-demand screen capture, explicitly triggered
+  - [ ] **8.2** Screen understanding - "what's on my screen", "read this to me", "what does this error mean"
+  - [ ] **8.3** Active-window context - resolve vague references by checking what you are actually looking at
+  - [ ] **8.4** Vision cost controls - downscaling, caching, a per-day budget cap with a visible counter
+  - [ ] **8.5** Meeting awareness - capture system audio (WASAPI loopback) alongside the mic so she can transcribe a call, summarise it after, and answer a question *you* ask her during it. For your side of the call only.
     - **User space, no kernel.** Loopback capture is a documented WASAPI mode; nothing here needs a driver. The one thing kernel level would add is hiding Clio from the other participants' software, which is the line below.
     - **Consent is a design constraint, not a footnote.** Capturing other people's voices is recording-consent-regulated in two-party jurisdictions. The build is transcribe-your-own-call and ask-Clio-quietly; it is not built to be undetectable by the other side, because the only value in undetectability is deception (interviews, exams), and that is out of scope by choice rather than by capability.
     - Depends on 5.3 (a HUD to show a live transcript) and reads best with 4.4 (push-to-talk, to ask without the room hearing you address her).
 
   ---
 
-  ## Phase 8 - Work and development
+  ## Phase 9 - Work and development
 
-  - [ ] **8.1** GitHub - read freely (issues, PRs, CI, diffs); push, merge and delete behind confirmation
-  - [ ] **8.2** Coding agent spawn - works in a directory under supervision and reports back; you review before anything merges
-  - [ ] **8.3** Web automation - navigate, read, fill. Submit, post or buy needs confirmation.
-  - [ ] **8.4** Desktop app automation - APIs and scripting first, UI automation only where nothing else exists, brittleness acknowledged
+  - [ ] **9.1** GitHub - read freely (issues, PRs, CI, diffs); push, merge and delete behind confirmation
+  - [ ] **9.2** Coding agent spawn - works in a directory under supervision and reports back; you review before anything merges. Runs as a 7.2 job, so it is started, watched and stopped the same way.
+  - [ ] **9.3** Web automation - navigate, read, fill. Submit, post or buy needs confirmation.
+  - [ ] **9.4** Desktop app automation - APIs and scripting first, UI automation only where nothing else exists, brittleness acknowledged
 
   ---
 
-  ## Phase 9 - Remote and ambient
+  ## Phase 10 - Remote and ambient
 
   The "I'm at college and left the file on my PC" phase.
 
-  - [ ] **9.1** Tailscale - identity-authenticated reach into the machine, no exposed ports
-  - [ ] **9.2** Wake-on-LAN - BIOS and NIC config, wake trigger, verified from outside the network
-  - [ ] **9.3** Remote command endpoint - authenticated, over Tailscale only
-  - [ ] **9.4** iPhone trigger - Shortcuts app to webhook. No native app needed.
-  - [ ] **9.5** File retrieval - "email me the chem assignment", delivered to mail or phone
-  - [ ] **9.6** Outbound push notifications - "tell me when this build finishes"
+  - [ ] **10.1** Tailscale - identity-authenticated reach into the machine, no exposed ports
+  - [ ] **10.2** Wake-on-LAN - BIOS and NIC config, wake trigger, verified from outside the network
+  - [ ] **10.3** Remote command endpoint - authenticated, over Tailscale only
+  - [ ] **10.4** iPhone trigger - Shortcuts app to webhook. No native app needed.
+  - [ ] **10.5** File retrieval - "email me the chem assignment", delivered to mail or phone. Uses 6.8's send path and its confirmation.
+  - [ ] **10.6** Outbound push notifications - "tell me when this build finishes". 7.3's job reports are the first thing sent this way.
 
   ---
 
-  ## Phase 10 - Automation and smart home
+  ## Phase 11 - Automation and smart home
 
-  - [ ] **10.1** Rule engine - "when X happens, do Y", stored as editable rules
-  - [ ] **10.2** Scheduled routines - morning briefing, backups, file organisation
-  - [ ] **10.3** Batch file operations, with confirmation
-  - [ ] **10.4** Home Assistant - local API, vendor-neutral, slotting in as capabilities rather than a new architecture
+  - [ ] **11.1** Rule engine - "when X happens, do Y", stored as editable rules
+  - [ ] **11.2** Scheduled routines - morning briefing, backups, file organisation
+  - [ ] **11.3** Batch file operations, with confirmation - many 7.4 operations at once, previewed as a list before any run
+  - [ ] **11.4** Home Assistant - local API, vendor-neutral, slotting in as capabilities rather than a new architecture
 
   ---
 
