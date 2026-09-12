@@ -186,6 +186,7 @@ class EmailConfig:
     extract_chars: int = 500
     window_days: int = 2
     category: str = "primary"
+    signature: str = "Shrey"   # the name a draft is signed off with (6.7)
 
 
 @dataclass(frozen=True)
@@ -386,6 +387,7 @@ def load_config(root: Path | None = None) -> Config:
             extract_chars=int(email_raw.get("extract_chars", 500)),
             window_days=int(email_raw.get("window_days", 2)),
             category=str(email_raw.get("category", "primary")).strip().lower(),
+            signature=str(email_raw.get("signature", "Shrey")).strip(),
         )
         runtime = RuntimeConfig(
             log_level=_env_override("CLIO_LOG_LEVEL", raw["runtime"]["log_level"]).upper(),

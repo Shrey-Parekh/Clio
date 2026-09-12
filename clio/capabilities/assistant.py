@@ -47,6 +47,7 @@ _DESCRIPTIONS = {
     "notes": "take notes",
     "tasks": "keep your to-do list",
     "email": "check your email",
+    "draft": "draft replies",
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",

@@ -208,6 +208,9 @@ important_domains = []
 # one. extract_chars is the amount of a message that leaves this machine.
 max_triage = 15
 extract_chars = 500
+# The name drafts are signed off with (6.7). Drafts are saved to Gmail Drafts and
+# never sent - sending is 6.8, behind confirmation.
+signature = "Shrey"
 
 [runtime]
 log_level = "INFO"        # DEBUG | INFO | WARNING | ERROR

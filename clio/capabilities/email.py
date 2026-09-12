@@ -254,6 +254,11 @@ class EmailCapability:
         self._remember(messages)
         return messages
 
+    def recent(self) -> list[Message]:
+        """What she last read out, while it still means something. Drafting a
+        reply (6.7) resolves "reply to Priya" against this and nothing else."""
+        return list(self._recent) if self._held() else []
+
     def _important(self, message: Message) -> bool:
         address = message.address.lower()
         domain = address.partition("@")[2]

@@ -55,6 +55,10 @@ class Message:
     subject: str
     received: datetime | None  # None when the Date header is missing or unparseable
     extract: str             # opening of the body, already cut to size
+    # Threading, for a reply to hang on the same conversation (6.7). Read here
+    # because this is where a message is parsed; nothing in this module writes.
+    message_id: str = ""
+    references: str = ""
 
 
 def credentials() -> tuple[str, str]:
@@ -166,6 +170,8 @@ def _preview(imap, uid: bytes, extract_chars: int,
         subject=_decoded(parsed.get("Subject", "")) or "(no subject)",
         received=_received(parsed.get("Date", "")),
         extract=_extract(parsed, extract_chars),
+        message_id=(parsed.get("Message-ID", "") or "").strip(),
+        references=(parsed.get("References", "") or "").strip(),
     )
 
 

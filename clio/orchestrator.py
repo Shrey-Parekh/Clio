@@ -15,6 +15,7 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.draft import DraftCapability
 from clio.capabilities.email import EmailCapability
 from clio.capabilities.tasks import TaskList
 from clio.capabilities.timer import TimerCapability
@@ -140,6 +141,8 @@ class Orchestrator:
         # Defaulted, so an orchestrator built without an [email] section still
         # starts; the capability itself says "email isn't set up yet".
         self._email = EmailCapability(email or EmailConfig())
+        # Shares the listing: "reply to Priya" means whoever she just read out.
+        self._draft = DraftCapability(email or EmailConfig(), self._email)
         # Reminders live in Task Scheduler, not here; this only needs to know
         # where the words are kept and which port to speak through when one fires.
         self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)
