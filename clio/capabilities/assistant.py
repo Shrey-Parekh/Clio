@@ -48,6 +48,7 @@ _DESCRIPTIONS = {
     "tasks": "keep your to-do list",
     "email": "check your email",
     "draft": "draft replies",
+    "send": "send one once you've okayed it",
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
@@ -57,7 +58,9 @@ _DESCRIPTIONS = {
 }
 
 # Not worth listing: he cannot usefully "ask for" these.
-_UNLISTED = {"stop", "repeat", "help"}
+# send_blocked only ever says why a send was refused, so it is not a thing she
+# can offer to do.
+_UNLISTED = {"stop", "repeat", "help", "send_blocked"}
 
 # Spoken order (not registration order, which is by match precedence). Only the
 # headline of each group — a spoken answer shouldn't recite a long list.

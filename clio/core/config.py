@@ -187,6 +187,10 @@ class EmailConfig:
     window_days: int = 2
     category: str = "primary"
     signature: str = "Shrey"   # the name a draft is signed off with (6.7)
+    # Sending (6.8) refuses inside this window. Not a security control - a
+    # decency one: a stray send at 3am is the least likely to be noticed.
+    quiet_start: int = 23
+    quiet_end: int = 7
 
 
 @dataclass(frozen=True)

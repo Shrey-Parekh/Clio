@@ -34,7 +34,7 @@ from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.stopwatch import parse_stopwatch_command
-from clio.capabilities.draft import parse_draft_request
+from clio.capabilities.draft import parse_draft_request, parse_send_request
 from clio.capabilities.email import (
     explain_failure as email_failure, parse_email_request,
 )
@@ -55,7 +55,9 @@ def register_capabilities(o) -> None:
     """Register every deterministic intent on `o._router`."""
 
     async def stop(_payload: object) -> None:
-        return None
+        # "Stop" already means "whatever is happening, don't". A send counting
+        # down its hold is the most important thing it can mean.
+        return o._draft.cancel_send() or None
 
     async def start_timer(payload: object) -> str:
         return o._timers.start(float(payload))
@@ -185,6 +187,28 @@ def register_capabilities(o) -> None:
             return email_failure(exc) or described.spoken
         o._intent_used_llm = used
         return spoken
+
+    async def send(_payload: object) -> str:
+        # Reached only after the permission gate said yes, and the gate's
+        # question was the readback itself.
+        return await o._draft.arm_send()
+
+    async def send_blocked(payload: object) -> str:
+        return payload.refusal  # type: ignore[attr-defined]
+
+    def _prepared(text: str):
+        request = parse_send_request(text)
+        return None if request is None else o._draft.prepare_send(request.override)
+
+    def match_send(text: str):
+        """Matches only when every guard passed; the payload carries the
+        readback the permission gate will speak."""
+        prepared = _prepared(text)
+        return prepared if prepared is not None and not prepared.refusal else None
+
+    def match_send_blocked(text: str):
+        prepared = _prepared(text)
+        return prepared if prepared is not None and prepared.refusal else None
 
     async def draft(payload: object) -> str:
         request = payload  # type: ignore[assignment]
@@ -319,6 +343,13 @@ def register_capabilities(o) -> None:
     # Before files and open: "find out who won" isn't a file lookup, and a search
     # names things ("look up Chrome's release notes") that open would claim.
     r.register("web", parse_web_request, web, offline=False)
+    # Sending, split in two so the permission gate is never asked to confirm
+    # something that was going to be refused anyway: "send" only matches once
+    # every guard has passed, and its description is the readback the gate
+    # speaks. Otherwise "send_blocked" matches and simply says why not.
+    r.register("send", match_send, send,
+               describe=lambda payload: payload.readback, offline=False)
+    r.register("send_blocked", match_send_blocked, send_blocked)
     # Before email: "reply to Priya saying I'll be late" is a draft, not a
     # question about the inbox. The edit words ("make it shorter") are only
     # claimed while a draft is actually open.

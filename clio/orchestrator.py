@@ -48,6 +48,10 @@ log = get_logger("clio.orchestrator")
 # How long a step needs before the next one can see its effect. Only launching
 # needs it, and only when something follows.
 _SETTLE_AFTER = {"open": 1.5}
+# How long a confirm-tier action typed in the chat window waits for a typed yes.
+# Long enough to read what it is about to do, short enough that a yes typed much
+# later is answering some other question.
+_PENDING_CONFIRM_S = 60.0
 
 # How often to prove the microphone is still delivering while nothing matches.
 _WAKE_HEARTBEAT_S = 15.0
@@ -142,7 +146,13 @@ class Orchestrator:
         # starts; the capability itself says "email isn't set up yet".
         self._email = EmailCapability(email or EmailConfig())
         # Shares the listing: "reply to Priya" means whoever she just read out.
-        self._draft = DraftCapability(email or EmailConfig(), self._email)
+        # Announces through the same queue as timers, because a send finishes
+        # ten seconds after the turn that asked for it is over.
+        self._draft = DraftCapability(email or EmailConfig(), self._email, self._announce)
+        # A confirm-tier action typed in the chat window, waiting for a typed
+        # yes. There is no microphone on that path, so _confirm cannot listen.
+        self._pending_confirm: tuple[Match, float] | None = None
+        self._typed = False
         # Reminders live in Task Scheduler, not here; this only needs to know
         # where the words are kept and which port to speak through when one fires.
         self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)
@@ -346,8 +356,25 @@ class Orchestrator:
         await self._emit("clio.state", {"state": "thinking"})
         self._memory.add_user(text)
         self._record(role="user", content=text)
-        reply, _ = await self._handle_utterance(text)
-        reply = reply or ""
+
+        self._typed = True
+        try:
+            pending = self._take_pending()
+            if pending is not None and is_affirmative(text):
+                # The typed yes *is* the confirmation, so this runs the action
+                # itself rather than going back through the gate and asking
+                # again. Anything that is not a yes drops it, by the same rule
+                # the spoken path uses: only an explicit yes counts.
+                log.info("Typed confirmation granted",
+                         extra={"extra_fields": {"intent": pending.intent}})
+                reply = await pending.run() or ""
+            else:
+                reply, _ = await self._handle_utterance(text)
+                reply = reply or ""
+        finally:
+            # Reset whatever happened, or one failed typed turn would leave the
+            # voice path unable to confirm by ear.
+            self._typed = False
         if reply:
             self._memory.add_assistant(reply)
             self._record(role="assistant", content=reply)
@@ -557,6 +584,14 @@ class Orchestrator:
             return f"I can't do that one. {matched.description} is off limits."
 
         if matched.permission is Permission.CONFIRM:
+            if self._typed:
+                # Typed turns have no microphone to answer with, so the action
+                # waits for a typed yes instead of being silently declined -
+                # which is what happened to every confirm-tier action from the
+                # chat window before 6.8.
+                self._pending_confirm = (matched, time.monotonic() + _PENDING_CONFIRM_S)
+                self._declined = True
+                return f"{matched.description}. Say yes and I'll do it."
             if not await self._confirm(f"{matched.description}. Should I go ahead?"):
                 log.info("Action declined", extra={"extra_fields": {"intent": matched.intent}})
                 # Flagged rather than inferred from the wording, so a chain can
@@ -639,6 +674,15 @@ class Orchestrator:
             else f" There are {remaining} more I haven't done."
         )
         return f"{done} Stopped at {steps[index - 1].description}. {why}{tail}".strip()
+
+    def _take_pending(self) -> Match | None:
+        """The action waiting on a typed yes, if it hasn't gone stale. Taken
+        rather than read: one pending confirmation answers one question."""
+        if self._pending_confirm is None:
+            return None
+        matched, expires = self._pending_confirm
+        self._pending_confirm = None
+        return matched if time.monotonic() < expires else None
 
     async def _confirm(self, prompt: str) -> bool:
         """Asks out loud and waits for an answer. Silence is a no, as is

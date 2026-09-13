@@ -53,6 +53,8 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "tasks": Permission.FREE,      # ticking off is undone by saying the task again
     "web": Permission.FREE,        # search and read only, answers out loud
     "email": Permission.FREE,      # reads the mailbox; cannot send, delete or mark read
+    "send": Permission.CONFIRM,    # the only thing here that cannot be undone
+    "send_blocked": Permission.FREE,  # says why a send was refused; sends nothing
     "draft": Permission.FREE,      # writes a draft to Gmail; sending is its own tier
 }
 
