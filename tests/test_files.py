@@ -93,9 +93,11 @@ async def main():
 
         # --- something it cannot read out ---
 
+        # Since 6.9 an image says *why* rather than just refusing: there is no
+        # vision model on the account, so there is nothing to look at it with.
         request = parse_file_request("read holiday", roots)
         spoken, _ = lookup(request, roots)
-        assert "isn't something I can read out" in spoken and "png" in spoken, spoken
+        assert "no way to look at pictures" in spoken, spoken
         print("OK  a binary is found but not read aloud")
 
         # --- nothing configured means saying so, not searching the drive ---

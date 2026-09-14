@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from clio.core import documents
 from clio.core.logging import get_logger
 
 log = get_logger("clio.files")
@@ -219,6 +220,35 @@ def lookup(request: Request, roots: tuple[Path, ...]) -> tuple[str, str]:
         return f"{len(matches)} of them: {shown}{more}.", ""
 
     path = matches[0]
+
+    # A folder is a document too: a project is described by its own readme and
+    # manifests, and that description is what 7.1 registers and 7.2 runs.
+    if path.is_dir():
+        project = documents.describe_project(path)
+        if request.kind == "summarise" and project.text:
+            return "", project.text
+        return project.summary + ".", ""
+
+    # Structured formats before the plain-text path, so a csv is read as a table
+    # with columns rather than as a wall of commas.
+    if documents.supported(path):
+        try:
+            document = documents.extract(path)
+        except Exception as exc:
+            log.warning("Extract failed",
+                        extra={"extra_fields": {"file": path.name, "error": str(exc)}})
+            return f"I found {path.stem} but couldn't make sense of the file.", ""
+        if document is None:
+            return (f"{path.stem} isn't something I can read - "
+                    f"it's a {path.suffix.lstrip('.')} file."), ""
+        # An image, or a scanned PDF: the summary says why there are no words.
+        if not document.text.strip():
+            return document.summary + ".", ""
+        if request.kind == "summarise":
+            return "", document.text
+        opening = " ".join(document.text[:_SPOKEN_CHARS].split())
+        return f"{document.summary}. {opening}", ""
+
     if path.suffix.lower() not in _TEXT:
         return (f"{path.stem} isn't something I can read out - "
                 f"it's a {path.suffix.lstrip('.')} file."), ""

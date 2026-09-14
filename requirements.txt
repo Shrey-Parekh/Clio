@@ -43,3 +43,11 @@ tzdata==2025.2
 # server, and hand-rolling the handshake and frame masking is a lot of fiddly
 # protocol code; websockets is the small asyncio-native standard.
 websockets==16.1.1
+
+# Phase 6.9 - reading documents. One library per format, all pure Python, no
+# system installs. The stdlib covers csv, json, markdown and code; these four
+# are the formats whose bytes are a zip or an object graph rather than text.
+pypdf==6.1.1
+python-docx==1.2.0
+python-pptx==1.0.2
+openpyxl==3.1.5

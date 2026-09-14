@@ -47,6 +47,7 @@ from clio.capabilities.web import (
 )
 from clio.core.errors import report_error
 from clio.core.logging import get_logger
+from clio.llm import longform
 
 log = get_logger("clio.registry")
 
@@ -275,14 +276,14 @@ def register_capabilities(o) -> None:
             return spoken
         # The one deterministic intent that reaches the model; it says so.
         o._intent_used_llm = True
-        return await o._llm.complete(
-            [
-                {"role": "system", "content": o._persona_system_prompt},
-                {"role": "user", "content":
-                    "Say what this file is and what's in it, out loud, in three sentences "
-                    f"at most. No lists, no code, no file paths.\n\n{to_summarise}"},
-            ],
-            tier="default",
+        # Long documents are chunked rather than truncated: a summary of the
+        # first two pages of a forty-page brief is confidently wrong.
+        return await longform.summarise(
+            to_summarise,
+            ask=("Say what this is and what's in it, out loud, in three sentences at most. "
+                 "No lists, no code, no file paths."),
+            persona=o._persona_system_prompt,
+            llm=o._llm,
         )
 
     async def control(payload: object) -> str:

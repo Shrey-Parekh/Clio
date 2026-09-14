@@ -429,11 +429,15 @@
     - A short hold before the API call (about 10 seconds) so "wait, cancel that" still works. Gmail's own undo-send does not exist in the API.
     - A send is never triggered by the content of an incoming email (6.6's rule), or by a step of a chain unless that step passes its own confirmation (2.7's rule).
     - **Changes the brief.** Section 5 said "read-only, I write the replies myself". Changed at his request on 2026-09-11. Sending is the section 6 "confirm each time" bucket, which already listed it.
-  - [ ] **6.9** Document handling - PDF, Word, PowerPoint, spreadsheets, data files, code and images, read and summarised. **And project folders**: what a project is, and how it is meant to be run.
-    - Extends 3.6's read and summarise past plain text, on the existing "read that file" path, so no new intent competes for his sentences. One library per format: `pypdf`, `python-docx`, `python-pptx`, `openpyxl`; CSV, TSV, JSON, Markdown and code need nothing new.
-    - **Images go through a vision model** on demand, never automatically. Old `.doc`/`.xls` are out - not asked for, and the Windows libraries for them are patchy.
-    - Large documents are summarised in **chunks, then a summary of the summaries**, capped at a configured number of chunks because the chat tier allows 8,000 tokens a minute. When the cap bites she says how far she got rather than implying she read it all.
-    - **Understanding a project** is the same reading, pointed at a folder: README, `pyproject.toml`, `requirements.txt`, `package.json`, `.env.example` and the entry script. From those she can say what a project is, what it needs, and the command it is run with. That answer is what 7.1 turns into a registry entry and 7.2 actually runs, so reading and running meet there rather than being two separate guesses about the same folder.
+  - [x] **6.9** Document handling - `clio/core/documents.py` (extraction) and `clio/llm/longform.py` (long documents). PDF, Word, PowerPoint, Excel, CSV, TSV, JSON, Markdown and code, **and project folders**.
+    - Hangs off 3.6's existing "read that file" path, so **no new intent** competes for his sentences. Four pure-Python libraries, no system installs: `pypdf`, `python-docx`, `python-pptx`, `openpyxl`. CSV, TSV, JSON and code need nothing new.
+    - Every format also produces a **deterministic one-liner** written without a model - "a 12-page PDF", "a spreadsheet: Marks (412 rows, 6 columns)", "200 rows and 2 columns: TV, Sales". That is what she says when asked to read something, and it is still true with the network down.
+    - Slides include **speaker notes**, Word includes **table contents**, CSV **sniffs its delimiter** (a semicolon export is still a csv on Windows), and JSON is described **by shape** rather than dumped as braces.
+    - **Long documents are chunked**: each part summarised, then a summary of the summaries, paced for the 8,000-tokens-a-minute limit and capped at about 25 pages. Past the cap she says what percentage she actually read instead of implying she read it all.
+    - **Understanding a project** is the same reading pointed at a folder: README, manifests and entry points, and from them **the command it is run with** - `python -m clio`, `npm run dev`, `make`, `cargo run`. A folder whose files do not say gets no invented command, which is the rule 7.2 depends on.
+    - **Images are refused honestly.** Checked live: his Groq account serves no vision model, so she says she has no way to look at pictures rather than pretending. A scanned PDF says it is a scan instead of "it's empty". Parked below, with the finding.
+    - **Live-verified** 2026-09-14 against his real files: PDFs (2, 4 and 12 pages), two Word documents, three CSVs (200 and 1,655 rows), an Excel workbook, and the Clio repo read as a project. **Two bugs it found that the tests had not:** Office leaves `~$name.docx` lock stubs that carry the right extension and no contents, and every parser threw on them - three were sitting in his Documents; and looking for a package by folder name produced `python -m Clio` on Windows, where paths ignore case, which would be wrong on any other machine and is exactly the command 7.2 would run. Both fixed, both now regression-tested.
+    - **Known limits:** no `.doc`/`.xls` (pre-2007, patchy Windows libraries), no images, no OCR, no PDF page ranges. Not yet tried by voice.
   - **6.10 assignment help - parked** on 2026-09-14, at his request, before any code was written. Not out of scope, just not wanted now. See **Parked** at the end.
 
   ---
@@ -531,6 +535,12 @@
   - **Assignment help** (was 6.10) - read a brief, extract its requirements, draft against
     them into a markdown file beside it. Parked 2026-09-14 before any code was written.
     Everything it needed is built: 6.9 reads the brief, and 7.4 will own file writes.
+  - **Looking at images** (part of 6.9) - screenshots, photos of notes, diagrams, and
+    scanned PDFs. Parked on a finding, not a preference: **his Groq account serves no
+    vision model** (checked 2026-09-14 - fourteen models, none of them multimodal). It
+    needs either a vision model appearing on the account, a second provider, or local OCR
+    with Tesseract. Until one of those, she says she cannot look at pictures. Phase 8's
+    screen reading hits the same wall and will settle it.
 
   ---
 
