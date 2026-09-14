@@ -193,6 +193,21 @@ roots = [
 # clio = "C:/Users/Shrey/Documents/Clio"
 # the roadmap = "C:/Users/Shrey/Documents/Clio/ROADMAP.md"
 
+[projects]
+# Everything she is allowed to run (7.1). The command always comes from here and
+# never from a sentence: a mishearing can pick the wrong project, but it cannot
+# invent a command you never wrote. Starting and stopping both ask first.
+#
+# Ask "what projects can you see" and she reads your folders, works out how each
+# one runs, and proposes them; "register <name>" appends a block like this one.
+# Edit or delete them by hand, same as anything else in this file.
+#
+# [projects.ewaste]
+# path = "C:/Users/Shrey/Documents/ewaste"
+# command = "python -m ewaste"
+# aliases = ["the ewaste training", "the training"]
+# gpu = true          # she warns about free VRAM before starting it
+
 [email]
 # Reading Gmail over IMAP (6.6). The address and app password live in .env, never
 # here. Unread means recent and in the Primary tab: the account holds ten thousand

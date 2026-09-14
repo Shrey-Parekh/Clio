@@ -16,12 +16,13 @@ from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
 from clio.capabilities.draft import DraftCapability
+from clio.capabilities.projects import ProjectCapability
 from clio.capabilities.email import EmailCapability
 from clio.capabilities.tasks import TaskList
 from clio.capabilities.timer import TimerCapability
 from clio.core.config import (
-    Config, ConfigError, DictationConfig, EmailConfig, HotkeyConfig, LocationConfig,
-    MouseConfig, PushToTalkConfig,
+    PROJECT_ROOT, Config, ConfigError, DictationConfig, EmailConfig, HotkeyConfig,
+    LocationConfig, MouseConfig, PushToTalkConfig,
 )
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
@@ -29,6 +30,7 @@ from clio.input.keyboard import KeyListener
 from clio.input.mouse import MouseTrigger
 from clio.input.typing import type_text
 from clio.core.events import Event, EventBus
+from clio.core.jobs import JobRunner
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
 from clio.core.router import IntentRouter, Match
@@ -128,6 +130,8 @@ class Orchestrator:
         notes_path: str | None = None,
         tasks_path: str | None = None,
         email: EmailConfig | None = None,
+        projects: dict | None = None,
+        config_path: Path | None = None,
         memory_root: str | None = None,
         core_port: int = 8765,
     ):
@@ -153,6 +157,11 @@ class Orchestrator:
         # yes. There is no microphone on that path, so _confirm cannot listen.
         self._pending_confirm: tuple[Match, float] | None = None
         self._typed = False
+        # Jobs outlive the turn that started them, and Clio herself, so the
+        # runner keeps its bookkeeping beside the other memory files.
+        self._jobs = JobRunner(memory_root or "memory", announce=self._announce)
+        self._projects = ProjectCapability(
+            projects or {}, self._file_roots, self._jobs, config_path=config_path)
         # Reminders live in Task Scheduler, not here; this only needs to know
         # where the words are kept and which port to speak through when one fires.
         self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)
@@ -968,6 +977,9 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         notes_path=str(Path(config.memory.root) / "notes.md"),
         tasks_path=str(Path(config.memory.root) / "tasks.md"),
         email=config.email,
+        projects=config.projects,
+        # Where an approved project gets appended. The same file load_config read.
+        config_path=PROJECT_ROOT / "config" / "default.toml",
         memory_root=config.memory.root,
         core_port=config.runtime.core_port,
     )

@@ -35,6 +35,7 @@ from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.stopwatch import parse_stopwatch_command
 from clio.capabilities.draft import parse_draft_request, parse_send_request
+from clio.capabilities.projects import parse_project_request
 from clio.capabilities.email import (
     explain_failure as email_failure, parse_email_request,
 )
@@ -188,6 +189,35 @@ def register_capabilities(o) -> None:
             return email_failure(exc) or described.spoken
         o._intent_used_llm = used
         return spoken
+
+    async def projects(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        if request.kind == "list":
+            return o._projects.listing()
+        if request.kind == "scan":
+            return await asyncio.to_thread(o._projects.scan)
+        if request.kind == "register":
+            return await asyncio.to_thread(o._projects.register, request.name)
+        if request.kind == "status":
+            return await o._projects.status(request.name)
+        spoken, tail = await o._projects.log_tail(request.name)
+        if not tail:
+            return spoken
+        # Only when there is no shape in the output to read deterministically.
+        o._intent_used_llm = True
+        return await o._llm.complete(
+            [{"role": "system", "content": o._persona_system_prompt},
+             {"role": "user", "content":
+                 "Say in one or two sentences what this program is doing right now, out "
+                 f"loud. It's the tail of a log.\n\n{tail}"}],
+            tier="fast",
+        )
+
+    async def project_run(payload: object) -> str:
+        return await o._projects.run(payload.name)  # type: ignore[attr-defined]
+
+    async def project_stop(payload: object) -> str:
+        return await o._projects.stop(payload.name)  # type: ignore[attr-defined]
 
     async def send(_payload: object) -> str:
         # Reached only after the permission gate said yes, and the gate's
@@ -344,10 +374,39 @@ def register_capabilities(o) -> None:
     # Before files and open: "find out who won" isn't a file lookup, and a search
     # names things ("look up Chrome's release notes") that open would claim.
     r.register("web", parse_web_request, web, offline=False)
+    def match_project(text: str):
+        request = parse_project_request(text)
+        if request is None:
+            return None
+        # "Run X" and "stop X" only belong to this capability when X is a
+        # project she actually knows. Otherwise the sentence carries on to the
+        # things that own those words - opening an app, stopping a timer.
+        if request.kind in ("run", "stop") and o._projects.resolve(request.name) is None:
+            return None
+        return request
+
+    def match_project_kind(kind: str):
+        def matcher(text: str):
+            request = match_project(text)
+            return request if request is not None and request.kind == kind else None
+        return matcher
+
+    def match_projects_read(text: str):
+        request = match_project(text)
+        return request if request is not None and request.kind not in ("run", "stop") else None
+
     # Sending, split in two so the permission gate is never asked to confirm
     # something that was going to be refused anyway: "send" only matches once
     # every guard has passed, and its description is the readback the gate
     # speaks. Otherwise "send_blocked" matches and simply says why not.
+    # Projects before open/launch and before the timer's "stop": "run the
+    # ewaste training" is a job, not an app to open, and "stop the training" is
+    # not a timer. Both only claim the sentence when the name is registered.
+    r.register("project_run", match_project_kind("run"), project_run,
+               describe=lambda payload: o._projects.describe_run(payload.name))
+    r.register("project_stop", match_project_kind("stop"), project_stop,
+               describe=lambda payload: f"Stopping {payload.name}")
+    r.register("projects", match_projects_read, projects)
     r.register("send", match_send, send,
                describe=lambda payload: payload.readback, offline=False)
     r.register("send_blocked", match_send_blocked, send_blocked)

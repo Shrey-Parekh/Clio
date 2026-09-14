@@ -446,15 +446,21 @@
 
   Clio stops only reading the machine and starts doing work on it: running his projects, managing files, running commands, and carrying out multi-step jobs. **Independence here means supervised, not unwatched** (brief section 10). Every job is a named, bounded thing she can report on and stop, never an open-ended shell. Anything destructive or outward-facing asks first.
 
-  - [ ] **7.1** Project registry - the list of things she is allowed to run.
-    - `[projects.<name>]` in config: folder, run command, environment (venv or conda), spoken aliases, and whether it uses the GPU. For example `[projects.ewaste]` with its training command, reachable as "the ewaste training".
-    - **The command always comes from the registry, never from the sentence.** The rule is the same as 3.4's paths: a mishearing can pick the wrong project, but it can never invent a command.
-    - "What projects do you know" lists them. A helper scans the configured roots for `pyproject.toml`, `package.json`, `requirements.txt` and README run instructions, and **proposes** entries. He approves each one. Nothing registers itself.
-  - [ ] **7.2** Job runner - "run the ewaste training", "is the training still running", "stop the training".
-    - Starts a registered project as a separate background process with output to `logs/jobs/<name>-<timestamp>.log`. The job is not tied to the voice loop, so a long run does not block her, and she keeps answering while it works.
-    - Starting a job is **CONFIRM**, because a training run can hold the GPU for hours. Stopping one is **CONFIRM** too, because it throws away unsaved progress. Checking status is FREE.
-    - **VRAM is shared with Clio herself.** On the 8GB 4060 Ti, pre-warmed Whisper and Kokoro (2.9) compete with a training run. A GPU job offers to unload her models first and reload them when the job ends. She does not crash the run or herself by guessing.
-    - A job list survives a Clio restart (PID plus log path on disk), so "is it still running" is still answerable after she has been closed.
+  - [x] **7.1** Project registry - `clio/capabilities/projects.py`. `[projects.<name>]` in config: folder, command, spoken aliases, and whether it wants the GPU.
+    - **The command always comes from the registry, never from the sentence.** A mishearing can pick the wrong registered project - which he then hears read back - but there is nowhere for an invented command to come from. That is the whole safety story, and it is why `run` and `stop` **only claim a sentence when the name is already registered**; otherwise "run the dishwasher" falls through to whatever else owns those words.
+    - Three separate steps: **propose, approve, run.** "What projects can you see" reads each candidate folder with 6.9 and says what it found and how each appears to run. Registering writes nothing until he says the name. Running asks again, every time.
+    - An approved entry is **appended** to `config/default.toml` as a plain block with the date and a note that he approved it. Appended, never rewritten: his config is full of his own comments, and a round trip through a TOML writer would eat them.
+    - A folder whose files do not say how to run it is **not proposed at all** - registering something she cannot run would be a record with a hole in it.
+    - **Live-verified** 2026-09-14: scanning his real Documents, Downloads and Desktop found six runnable projects and their commands (`rusumeai` → `python app.py`, `loopin-iet-portal` → `npm run dev`, `ironlog` → `make`), with nothing registered and nothing written.
+  - [x] **7.2** Job runner - `clio/core/jobs.py`. "Run the ewaste training", "what's running", "how's the training going", "show me the training log", "stop the training".
+    - Starts a registered project as a **separate background process**, output to `memory/jobs/<name>-<timestamp>.log`. It is not tied to the voice loop, so a long run does not block her and she keeps answering while it works.
+    - Starting is **CONFIRM** with a readback of the exact command and folder; stopping is **CONFIRM** too, because it throws away unsaved progress. Looking - listing, status, logs - is FREE.
+    - **A job survives a restart.** The pid, its log and its start time live in `memory/jobs.json`, so "is it still running" is answerable after Clio has been closed and reopened. The *announcement* when it finishes is best-effort and is lost on restart; the bookkeeping is not.
+    - **A reused pid is not killed.** Windows recycles pid numbers, so the process's own creation time is stored alongside; a pid whose process started at a different second is treated as gone rather than terminated. Killing a stranger's process is the worst thing this module could do, so it is the thing it checks.
+    - Progress is read **deterministically out of the log** - "epoch 12 of 50", "63 percent" - and only falls back to the model when the output has no shape to read.
+    - A finish or failure is announced through the same queue timers use. Failure is judged by what the log ends in, and is said as a reading of the log rather than a verdict, because a detached process leaves no exit code.
+    - **The GPU half is a warning, not an unload.** Before a GPU job she says how much VRAM is actually free (2,956 MB when checked). Unloading her own Whisper and Kokoro models to make room is **parked**: nothing in the speech stack can unload today, and inventing that mid-feature risks the one thing that must not break. See Parked.
+    - **Live-verified** 2026-09-14: a real process started, its progress read from its own log as "2 of 2", its finish detected, and a second job stopped on demand and confirmed dead.
   - [ ] **7.3** Job reporting - she tells him when it finishes, and how it went.
     - A finish or failure is announced through the timer announcement queue, plus a toast (6.4's path) when she is not running.
     - "How's the training going" reads the log tail. Progress is parsed deterministically where the output has a shape (epoch 12/50, a percentage, a loss value); otherwise the model summarises the tail.
@@ -535,6 +541,12 @@
   - **Assignment help** (was 6.10) - read a brief, extract its requirements, draft against
     them into a markdown file beside it. Parked 2026-09-14 before any code was written.
     Everything it needed is built: 6.9 reads the brief, and 7.4 will own file writes.
+  - **Unloading her models for a GPU job** (part of 7.2) - freeing the VRAM that
+    pre-warmed Whisper and Kokoro hold, then reloading when the job ends. Parked because
+    nothing in the speech stack can unload a model today, and building that while building
+    the job runner would put the one subsystem that must never break in the middle of a
+    feature. For now she says how much VRAM is free and lets him decide. Worth doing when
+    a real training run actually fails for want of memory.
   - **Looking at images** (part of 6.9) - screenshots, photos of notes, diagrams, and
     scanned PDFs. Parked on a finding, not a preference: **his Groq account serves no
     vision model** (checked 2026-09-14 - fourteen models, none of them multimodal). It

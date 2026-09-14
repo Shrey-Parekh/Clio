@@ -54,6 +54,9 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "web": Permission.FREE,        # search and read only, answers out loud
     "email": Permission.FREE,      # reads the mailbox; cannot send, delete or mark read
     "send": Permission.CONFIRM,    # the only thing here that cannot be undone
+    "projects": Permission.FREE,   # listing, proposing, status and logs; starts nothing
+    "project_run": Permission.CONFIRM,   # a training run can hold the GPU for hours
+    "project_stop": Permission.CONFIRM,  # stopping one throws away unsaved progress
     "send_blocked": Permission.FREE,  # says why a send was refused; sends nothing
     "draft": Permission.FREE,      # writes a draft to Gmail; sending is its own tier
 }

@@ -194,6 +194,21 @@ class EmailConfig:
 
 
 @dataclass(frozen=True)
+class ProjectConfig:
+    """One thing she is allowed to run (7.1).
+
+    The command always comes from here, never from the sentence. A mishearing
+    can pick the wrong project - it can never assemble a command he did not
+    write down."""
+
+    name: str
+    path: Path
+    command: str
+    aliases: tuple[str, ...] = ()
+    gpu: bool = False
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     log_level: str
     core_port: int
@@ -219,6 +234,9 @@ class Config:
     # The only folders she may look inside. Empty means she says she has
     # nowhere to look, rather than defaulting to the whole user profile.
     file_roots: tuple[Path, ...]
+    # Name -> what to run. Empty until he approves something, so she starts
+    # knowing how to run nothing at all.
+    projects: dict[str, ProjectConfig]
     email: EmailConfig
     runtime: RuntimeConfig
 
@@ -383,6 +401,19 @@ def load_config(root: Path | None = None) -> Config:
             Path(os.path.expandvars(str(r))).expanduser()
             for r in raw.get("files", {}).get("roots", [])
         )
+        projects = {}
+        for name, entry in raw.get("projects", {}).items():
+            if not isinstance(entry, dict) or not entry.get("command"):
+                # A half-written entry is skipped rather than started: the
+                # command is the whole point of the record.
+                continue
+            projects[str(name).lower()] = ProjectConfig(
+                name=str(name),
+                path=Path(os.path.expandvars(str(entry.get("path", "")))).expanduser(),
+                command=str(entry["command"]),
+                aliases=tuple(str(a).lower() for a in entry.get("aliases", [])),
+                gpu=bool(entry.get("gpu", False)),
+            )
         email_raw = raw.get("email", {})
         email = EmailConfig(
             important_senders=tuple(str(s).lower() for s in email_raw.get("important_senders", [])),
@@ -416,6 +447,7 @@ def load_config(root: Path | None = None) -> Config:
         push_to_talk=push_to_talk,
         shortcuts=shortcuts,
         file_roots=file_roots,
+        projects=projects,
         email=email,
         runtime=runtime,
     )
