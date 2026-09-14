@@ -429,12 +429,12 @@
     - A short hold before the API call (about 10 seconds) so "wait, cancel that" still works. Gmail's own undo-send does not exist in the API.
     - A send is never triggered by the content of an incoming email (6.6's rule), or by a step of a chain unless that step passes its own confirmation (2.7's rule).
     - **Changes the brief.** Section 5 said "read-only, I write the replies myself". Changed at his request on 2026-09-11. Sending is the section 6 "confirm each time" bucket, which already listed it.
-  - [ ] **6.9** Document handling - PDF, DOCX, spreadsheets and images, read and summarised.
-    - Extends 3.6's read and summarise past plain text. A library per format (PDF, DOCX, XLSX), picked when built; images go through a vision model, on demand and counted against 8.4's budget.
-    - Large documents are summarised in chunks rather than dropped into one prompt, because of the 8,000-tokens-a-minute chat tier.
-  - [ ] **6.10** Assignment help - read a brief, extract requirements, draft against them.
-    - Depends on 6.9. The requirements (word count, deadline, marking criteria) are pulled out first and read back before any drafting starts, so the draft is checked against something explicit.
-    - The draft is written to a new file in the assignment's folder (7.4's write rules), never over his own work.
+  - [ ] **6.9** Document handling - PDF, Word, PowerPoint, spreadsheets, data files, code and images, read and summarised. **And project folders**: what a project is, and how it is meant to be run.
+    - Extends 3.6's read and summarise past plain text, on the existing "read that file" path, so no new intent competes for his sentences. One library per format: `pypdf`, `python-docx`, `python-pptx`, `openpyxl`; CSV, TSV, JSON, Markdown and code need nothing new.
+    - **Images go through a vision model** on demand, never automatically. Old `.doc`/`.xls` are out - not asked for, and the Windows libraries for them are patchy.
+    - Large documents are summarised in **chunks, then a summary of the summaries**, capped at a configured number of chunks because the chat tier allows 8,000 tokens a minute. When the cap bites she says how far she got rather than implying she read it all.
+    - **Understanding a project** is the same reading, pointed at a folder: README, `pyproject.toml`, `requirements.txt`, `package.json`, `.env.example` and the entry script. From those she can say what a project is, what it needs, and the command it is run with. That answer is what 7.1 turns into a registry entry and 7.2 actually runs, so reading and running meet there rather than being two separate guesses about the same folder.
+  - **6.10 assignment help - parked** on 2026-09-14, at his request, before any code was written. Not out of scope, just not wanted now. See **Parked** at the end.
 
   ---
 
@@ -520,6 +520,17 @@
   - [ ] **11.2** Scheduled routines - morning briefing, backups, file organisation
   - [ ] **11.3** Batch file operations, with confirmation - many 7.4 operations at once, previewed as a list before any run
   - [ ] **11.4** Home Assistant - local API, vendor-neutral, slotting in as capabilities rather than a new architecture
+
+  ---
+
+  ## Parked
+
+  Wanted once, not wanted now. Kept here rather than deleted, because the reasoning is
+  still good and picking one back up should not mean rediscovering it.
+
+  - **Assignment help** (was 6.10) - read a brief, extract its requirements, draft against
+    them into a markdown file beside it. Parked 2026-09-14 before any code was written.
+    Everything it needed is built: 6.9 reads the brief, and 7.4 will own file writes.
 
   ---
 
