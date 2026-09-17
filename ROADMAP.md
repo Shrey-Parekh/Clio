@@ -461,10 +461,13 @@
     - A finish or failure is announced through the same queue timers use. Failure is judged by what the log ends in, and is said as a reading of the log rather than a verdict, because a detached process leaves no exit code.
     - **The GPU half is a warning, not an unload.** Before a GPU job she says how much VRAM is actually free (2,956 MB when checked). Unloading her own Whisper and Kokoro models to make room is **parked**: nothing in the speech stack can unload today, and inventing that mid-feature risks the one thing that must not break. See Parked.
     - **Live-verified** 2026-09-14: a real process started, its progress read from its own log as "2 of 2", its finish detected, and a second job stopped on demand and confirmed dead.
-  - [ ] **7.3** Job reporting - she tells him when it finishes, and how it went.
-    - A finish or failure is announced through the timer announcement queue, plus a toast (6.4's path) when she is not running.
-    - "How's the training going" reads the log tail. Progress is parsed deterministically where the output has a shape (epoch 12/50, a percentage, a loss value); otherwise the model summarises the tail.
-    - A failure is explained from its traceback in plain language ("it ran out of GPU memory at epoch 3"), not recited.
+  - [x] **7.3** Job reporting - `jobs.explain`, `JobRunner.outcome` and `JobRunner.missed`. She says when it finished, and what went wrong.
+    - **A failure is explained, not recited.** The failures that actually happen are matched deterministically out of the log - out of GPU memory, a missing module, a port already in use, a file it couldn't find, a command that isn't on the machine - and said in his words. No model call, works offline, and a regex reads "CUDA out of memory" exactly as well as a model would. Anything unmatched falls back to the last exception line ("RuntimeError, shapes don't line up"), which is still better than "an error".
+    - **A clean log is not a failure.** A detached process leaves no exit code, so the distinction is entirely in what the log ends with - which is why `explain` returning nothing is what "it finished" means.
+    - **A toast as well as the spoken line**, for any job that ran over a minute or that failed, reusing 6.4's toast - `clio/remind.py` imports nothing from the voice stack, so borrowing it costs nothing and keeps one implementation of the same thing.
+    - **A job that ended while she was closed is still reported.** Nothing was watching it, so on the next start she says "while I was closed, the training finished" - once, then forgets it. This has to run before anything else looks at the job list, because the ordinary sweep prunes dead jobs silently: right for a status question, wrong for the one report he never got.
+    - Progress while it runs was done in 7.2: parsed from the log where the output has a shape, the model only when it hasn't.
+    - **Live-verified** 2026-09-17: a real job failed on a missing import and was reported as "trainer stopped: the nosuchmodule_at_all module isn't installed" - from a five-line traceback - and a real Windows toast appeared.
     - Phone delivery ("text me when it's done") arrives with 10.6.
   - [ ] **7.4** File writes - create, rename, copy, move, delete. This is the write half 3.6 deliberately left out.
     - Its own intent and its own tier, the way `power` is separate from `control`. Creating a new file is FREE. Move, overwrite and delete are **CONFIRM**.

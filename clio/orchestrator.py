@@ -247,6 +247,11 @@ class Orchestrator:
         self._frames = capture.frames()
         if self._prewarm:
             asyncio.ensure_future(self._warm_up_models())
+        # A job that ended while she was closed never got announced, and nothing
+        # else will ever mention it. Queued before the loop starts, so it is the
+        # first thing she says rather than something he has to go looking for.
+        for report in self._jobs.missed():
+            await self._announce(report)
         self._start_triggers()
         try:
             await self._run_loop()

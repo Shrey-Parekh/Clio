@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from clio.capabilities.projects import (  # noqa: E402
     ProjectCapability, ProjectRequest, parse_project_request,
 )
+from clio.core import jobs  # noqa: E402
 from clio.core.config import ProjectConfig  # noqa: E402
 from clio.core.jobs import Job, JobRunner  # noqa: E402
 from clio.core.permissions import Permission  # noqa: E402
@@ -40,6 +41,9 @@ class FakeLLM:
 async def main():
     root = Path(tempfile.mkdtemp(prefix="clio-projects-"))
     said = []
+    toasted = []
+    # No real Windows notifications from a test run.
+    jobs.toast = lambda title, text: toasted.append(text)
 
     async def announce(text):
         said.append(text)
@@ -96,7 +100,7 @@ async def main():
         assert runner.running() == [], "a finished job is swept, not left in the file"
         print(f"OK  a real job ran, reported progress from its log, and announced: {said[0]!r}")
 
-        # --- a job that ends badly says so ---
+        # --- a job that ends badly says why, in his words ---
 
         (work / "broken.py").write_text("raise ValueError('nope')\n", encoding="utf-8")
         said.clear()
@@ -106,8 +110,50 @@ async def main():
             if said:
                 break
             await asyncio.sleep(0.25)
-        assert said and "ends in an error" in said[0], said
+        assert said and said[0].startswith("broken stopped:"), said
+        assert "ValueError" in said[0] and "nope" in said[0], said
+        assert toasted and toasted[-1] == said[0], "a failure toasts as well as speaks"
         print(f"OK  a failed job is reported as one: {said[0]!r}")
+
+        # --- the failures that actually happen, explained rather than recited ---
+
+        for tail, expected in [
+            ("Traceback...\ntorch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 2GB",
+             "it ran out of GPU memory"),
+            ("ModuleNotFoundError: No module named 'torch'", "the torch module isn't installed"),
+            ("OSError: [Errno 98] Address already in use",
+             "the port it wanted is already in use"),
+            ("FileNotFoundError: [Errno 2] No such file or directory: 'data/train.csv'",
+             "it couldn't find data/train.csv"),
+            ("'ewaste' is not recognized as an internal or external command",
+             "the command isn't on this machine"),
+            ("PermissionError: [Errno 13] Access is denied",
+             "Windows wouldn't let it open a file it needed"),
+        ]:
+            assert jobs.explain(tail) == expected, (tail[:40], jobs.explain(tail))
+
+        # An unknown crash still beats "an error": the last exception line is true.
+        assert jobs.explain("Traceback\nRuntimeError: shapes don't line up") == \
+            "RuntimeError, shapes don't line up"
+        # And a clean log is not a failure. This is the whole distinction, since
+        # a detached process leaves no exit code to ask.
+        assert jobs.explain("epoch 3/3\ndone\n") == ""
+        assert jobs.explain("") == ""
+        print("OK  known failures explained in plain words, a clean log left alone")
+
+        # --- a job that ended while she was closed is still reported ---
+
+        (work / "quick.py").write_text("print('all done')\n", encoding="utf-8")
+        gone = runner.start("quick", f'"{PYTHON}" quick.py', work)
+        for _ in range(40):
+            if not runner.is_alive(gone):
+                break
+            await asyncio.sleep(0.25)
+        # Nothing was watching it - that is the point. It is still in the file.
+        reports = runner.missed()
+        assert reports == ["While I was closed, quick has finished."], reports
+        assert runner.missed() == [], "reported once, not every restart"
+        print(f"OK  a job that ended while she was away is still mentioned: {reports[0]!r}")
 
         # --- a pid that got reused is not somebody else's process to kill ---
 
