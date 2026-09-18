@@ -16,6 +16,7 @@ from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
 from clio.capabilities.draft import DraftCapability
+from clio.capabilities.filewrite import FileWriter
 from clio.capabilities.projects import ProjectCapability
 from clio.capabilities.email import EmailCapability
 from clio.capabilities.tasks import TaskList
@@ -162,6 +163,11 @@ class Orchestrator:
         self._jobs = JobRunner(memory_root or "memory", announce=self._announce)
         self._projects = ProjectCapability(
             projects or {}, self._file_roots, self._jobs, config_path=config_path)
+        # The write half of 3.6, fenced into the same roots the read half uses.
+        self._writer = FileWriter(self._file_roots)
+        # "Undo that" belongs to whichever of files or the clipboard changed
+        # something most recently. Empty until one of them does.
+        self._last_undoable = ""
         # Reminders live in Task Scheduler, not here; this only needs to know
         # where the words are kept and which port to speak through when one fires.
         self._reminders = ReminderCapability(root=memory_root or "memory", port=core_port)

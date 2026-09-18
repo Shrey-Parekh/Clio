@@ -88,6 +88,13 @@ def _index(roots: tuple[Path, ...]) -> tuple[Path, ...]:
     return found
 
 
+def forget_index() -> None:
+    """Drop the cached index. Called after 7.4 changes a file, so she can find
+    the folder she has just made instead of waiting out the minute."""
+    global _index_cache
+    _index_cache = (0.0, ())
+
+
 def parse_file_request(text: str, roots: tuple[Path, ...] = ()) -> Request | None:
     lowered = _normalise(text)
     for kind, pattern in _COMPILED:

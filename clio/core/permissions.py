@@ -57,6 +57,9 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "projects": Permission.FREE,   # listing, proposing, status and logs; starts nothing
     "project_run": Permission.CONFIRM,   # a training run can hold the GPU for hours
     "project_stop": Permission.CONFIRM,  # stopping one throws away unsaved progress
+    "file_write": Permission.FREE,     # create and copy make new things; nothing overwritten
+    "file_move": Permission.CONFIRM,   # rename and move break paths other things point at
+    "file_delete": Permission.CONFIRM, # to the Recycle Bin, but a misheard name is still wrong
     "send_blocked": Permission.FREE,  # says why a send was refused; sends nothing
     "draft": Permission.FREE,      # writes a draft to Gmail; sending is its own tier
 }

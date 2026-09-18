@@ -469,10 +469,18 @@
     - Progress while it runs was done in 7.2: parsed from the log where the output has a shape, the model only when it hasn't.
     - **Live-verified** 2026-09-17: a real job failed on a missing import and was reported as "trainer stopped: the nosuchmodule_at_all module isn't installed" - from a five-line traceback - and a real Windows toast appeared.
     - Phone delivery ("text me when it's done") arrives with 10.6.
-  - [ ] **7.4** File writes - create, rename, copy, move, delete. This is the write half 3.6 deliberately left out.
-    - Its own intent and its own tier, the way `power` is separate from `control`. Creating a new file is FREE. Move, overwrite and delete are **CONFIRM**.
-    - **Delete goes to the Recycle Bin, never a permanent delete.** "Undo that" reverses the last operation.
-    - Only inside the configured roots, and targets are resolved from the file index (3.6), never from a path spoken aloud.
+  - [x] **7.4** File writes - `clio/core/fileops.py` (the operations and undo) and `clio/capabilities/filewrite.py` (the voice side). "Make a folder called invoices in Documents", "create a file called ideas.md", "copy the report to Desktop", "rename it to final report", "move the budget to Downloads", "delete the old draft", "undo that".
+    - Three intents by risk: **`file_write` FREE** (create, copy, undo, and every refusal), **`file_move` CONFIRM** (rename and move break paths other things point at), **`file_delete` CONFIRM**. The readback names the real file and folders: "Moving budget 2026.xlsx from Downloads to Documents".
+    - **Only inside the configured roots**, checked on the fully resolved path, so `..`, a shortcut, or `C:\Windows` cannot get through - every operation guards itself rather than trusting its caller.
+    - **Nothing is ever overwritten.** A taken name becomes `report (2).docx`, the way Explorer does it - so no operation can lose a file by landing on top of one, and there is nothing to confirm about a collision.
+    - **Nothing is deleted.** Removal goes to the Recycle Bin through Windows' own `SHFileOperation`; undo restores through the shell's `undelete` verb. Both were probed live on this machine before any code depended on them. Standard library only - `ctypes` rather than a `send2trash` dependency.
+    - **Undo walks back up to ten actions this session** - bin, move, rename, copy, create - and then says there is nothing left. Undoing a create or a copy recycles it rather than deleting it, so even an undo loses nothing.
+    - **Names, never paths.** Targets resolve through 3.6's index; a new name is stripped of anything that could make it a path, and Windows' reserved names (`con`, `nul`, `com1`) are refused. A name that fits two files is asked about - "that could be notes a.txt in Documents or notes b.txt in Desktop" - never guessed.
+    - **"It"** is the last file she found or changed, across reading and writing: "find the budget sheet... move it to Desktop" works.
+    - **"Undo that" follows whichever of files or the clipboard changed something last.** The clipboard already owned the phrase; now it means the most recent change, and "undo the clipboard" still always means the clipboard.
+    - **A bug the tests found:** the read side only knows folders through the files inside them, so an empty folder - including one she had just made - could not be a destination. "Move it to invoices" with an empty invoices folder would have failed. Destinations now look at the folders themselves.
+    - **Live-verified** 2026-09-19 against his real roots and the real Recycle Bin: a folder made in Documents, a file renamed with its extension kept, moved to Desktop, sent to the Recycle Bin, restored by undo, and `C:\Windows` refused as outside the fence. Everything the check made was removed after.
+    - **Known limits:** no writing file *contents* (notes and drafts already do that), no bulk operations (that is 11.3), undo does not survive a restart by design. Not yet tried by voice.
   - [ ] **7.5** Shell commands - "run pip install in the clio folder", "what's the git status of ewaste".
     - **CONFIRM every time**, reading back the exact command and the folder it runs in. A timeout, and output summarised rather than read aloud.
     - Read-only commands on a short allowlist (`git status`, `git log`, `nvidia-smi`, `dir`) can run FREE. Anything else asks.

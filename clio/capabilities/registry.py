@@ -148,6 +148,8 @@ def register_capabilities(o) -> None:
             tier="default",
         )
         spoken = await asyncio.to_thread(o._clipboard.replace, original, result.strip())
+        # "Undo that" now means the clipboard, until a file changes (7.4).
+        o._last_undoable = "clipboard"
         return f"{spoken} Did that one locally, it looked like a key." if sensitive else spoken
 
     async def web(payload: object) -> str:
@@ -212,6 +214,41 @@ def register_capabilities(o) -> None:
                  f"loud. It's the tail of a log.\n\n{tail}"}],
             tier="fast",
         )
+
+    async def file_write(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        spoken = await o._writer.run(request)
+        if not request.refusal and request.kind != "undo":
+            o._last_undoable = "file"
+        return spoken
+
+    def match_file(text: str):
+        request = o._writer.resolve(text)
+        if request is None:
+            return None
+        # "Undo that" is also the clipboard's. It means whichever of the two
+        # changed something last - never both, and never a guess.
+        if request.kind == "undo" and o._last_undoable != "file":
+            return None
+        return request
+
+    def match_file_free(text: str):
+        request = match_file(text)
+        if request is None:
+            return None
+        # Refusals land here whatever the verb, so the gate is never asked to
+        # confirm something that was going to be refused anyway.
+        if request.refusal or request.kind in ("folder", "file", "copy", "undo"):
+            return request
+        return None
+
+    def match_file_kind(*kinds: str):
+        def matcher(text: str):
+            request = match_file(text)
+            if request is None or request.refusal or request.kind not in kinds:
+                return None
+            return request
+        return matcher
 
     async def project_run(payload: object) -> str:
         return await o._projects.run(payload.name)  # type: ignore[attr-defined]
@@ -301,6 +338,10 @@ def register_capabilities(o) -> None:
         return adjust_speed(o._speaker, str(payload))
 
     async def files(payload: object) -> str:
+        # Whatever she just found is what "it" means next: "find the budget
+        # sheet... move it to Desktop" crosses from reading to writing.
+        if getattr(payload, "matches", ()):
+            o._writer.note(payload.matches[0])  # type: ignore[attr-defined]
         spoken, to_summarise = await look_up(payload, o._file_roots)  # type: ignore[arg-type]
         if not to_summarise:
             return spoken
@@ -365,6 +406,14 @@ def register_capabilities(o) -> None:
     r.register("help", parse_help_request, help_me)
     r.register("voice", parse_voice_request, voice)
     r.register("chance", parse_chance_request, chance)
+    # File writes before clipboard, files and open: "copy the report to Desktop"
+    # is not a clipboard transform, and "move it to Downloads" is not a lookup.
+    # Each only claims a sentence whose names resolved to real files.
+    r.register("file_move", match_file_kind("rename", "move"), file_write,
+               describe=lambda payload: o._writer.describe(payload))
+    r.register("file_delete", match_file_kind("delete"), file_write,
+               describe=lambda payload: o._writer.describe(payload))
+    r.register("file_write", match_file_free, file_write)
     r.register("clipboard", parse_clipboard_request, clipboard)
     # Before notes and files: "write X on my list" isn't a note, and "list my
     # tasks" isn't a folder listing.
