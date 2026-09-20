@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.shrey.clio",
   "build": {
-    "frontendDist": "../"
+    "frontendDist": "../ui"
   },
   "app": {
     "withGlobalTauri": true,
@@ -14,7 +14,10 @@
         "title": "Clio",
         "width": 420,
         "height": 560,
+        "minWidth": 260,
+        "minHeight": 200,
         "resizable": true,
+        "maximizable": true,
         "alwaysOnTop": true,
         "decorations": false
       },
@@ -24,7 +27,10 @@
         "url": "panel.html",
         "width": 500,
         "height": 660,
+        "minWidth": 320,
+        "minHeight": 280,
         "resizable": true,
+        "maximizable": true,
         "visible": false,
         "decorations": false
       }

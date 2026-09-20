@@ -30,7 +30,19 @@ fn main() {
                 // Keep the HUD off screen shares and recordings.
                 let _ = win.set_content_protected(true);
             }
-            // Launch with Windows. Idempotent, so enabling every start is fine.
+            // Launch with Windows - but only a real, built Clio.
+            //
+            // A debug build loads its UI from the dev server `tauri dev` runs,
+            // and that address is compiled in. Registering *this* exe for
+            // startup means that at every boot Windows opens a window pointing
+            // at a server nobody started: "can't reach this page", followed by
+            // a port number. That is exactly what was happening.
+            //
+            // So a debug build clears the entry instead of adding one, which
+            // also repairs a machine that already has the bad path registered.
+            #[cfg(debug_assertions)]
+            let _ = app.autolaunch().disable();
+            #[cfg(not(debug_assertions))]
             let _ = app.autolaunch().enable();
 
             let show = MenuItem::with_id(app, "show", "Show Clio", true, None::<&str>)?;

@@ -19,13 +19,15 @@
   .chrome { font-family:var(--chrome); text-transform:uppercase; letter-spacing:.22em; }
   .lbl { font:400 8.5px/1.6 var(--chrome); letter-spacing:.22em; color:var(--dim); text-transform:uppercase; }
 
-  header { flex:none; padding:14px 18px 0; border-bottom:1px solid var(--rule); -webkit-app-region:drag; }
+  /* The drag region is an attribute in the markup, handled by Tauri.
+     `-webkit-app-region` is Electron's and did nothing here. */
+  header { flex:none; padding:14px 18px 0; border-bottom:1px solid var(--rule); }
   .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
   .word { font:600 10px/1 var(--chrome); letter-spacing:.34em; color:var(--bone); }
   .link { display:flex; align-items:center; gap:8px; }
   #dot { width:4px; height:4px; border-radius:50%; background:#3A3F46; }
   #linkTxt { font:400 8.5px/1 var(--chrome); letter-spacing:.2em; color:#5B6068; text-transform:uppercase; }
-  nav { display:flex; gap:26px; -webkit-app-region:no-drag; }
+  nav { display:flex; gap:clamp(14px, 4vw, 26px); }
   nav button { appearance:none; background:none; border:0; padding:0 0 11px; cursor:pointer;
     font:500 9.5px/1 var(--chrome); letter-spacing:.24em; text-transform:uppercase;
     color:#5B6068; border-bottom:1.5px solid transparent; }
@@ -88,13 +90,65 @@
 
   :focus-visible { outline:1px solid var(--sodium); outline-offset:2px; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+
+  /* --- window controls, since there is no title bar --- */
+  .controls { display:flex; align-items:center; gap:2px; }
+  .controls button {
+    appearance:none; background:none; border:0; width:22px; height:22px; padding:0;
+    display:grid; place-items:center; cursor:pointer; color:#5B6068; border-radius:3px;
+    transition:color .15s, background .15s;
+  }
+  .controls button:hover { color:var(--bone); background:#171A20; }
+  .controls button[data-win="close"]:hover { color:#E8836A; background:#231413; }
+  .controls svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.4; }
+  .win-grip { background:transparent; }
+
+  /* --- adapting to the window, keyed off what window.js measures --- */
+  #thread { padding:clamp(12px, 3vh, 20px) clamp(12px, 4vw, 18px) 8px; gap:clamp(12px, 2.2vh, 18px); }
+  .turn .txt { font-size:clamp(12px, 0.9vw + 10px, 15px); }
+  .composer { padding:clamp(9px, 1.8vh, 12px) clamp(12px, 4vw, 18px) clamp(12px, 2.2vh, 16px); }
+  #settings { padding:clamp(14px, 3vh, 20px) clamp(12px, 4vw, 18px) 24px; }
+
+  /* Narrow: the label column stops fighting the values for room. */
+  html[data-width="tiny"] .grid,
+  html[data-width="narrow"] .grid { grid-template-columns:1fr; gap:4px 0; }
+  html[data-width="tiny"] .hint,
+  html[data-width="narrow"] .hint { margin-left:0; }
+  html[data-width="tiny"] .turn .tag { width:26px; }
+  html[data-width="tiny"] .cap .net { display:none; }
+  html[data-width="tiny"] header { padding:10px 10px 0; }
+
+  /* Short: the tab strip tightens so the thread keeps its room. */
+  html[data-height="short"] header { padding-top:8px; }
+  html[data-height="short"] .top { margin-bottom:8px; }
+  html[data-height="short"] nav button { padding-bottom:7px; }
+
+  /* Wide: a long line of text is hard to read, so it stops widening. */
+  html[data-width="wide"] #thread,
+  html[data-width="wide"] #settings { max-width:820px; width:100%; margin:0 auto; }
 </style>
 </head>
 <body>
-  <header>
-    <div class="top">
-      <div class="word">CLIO</div>
-      <div class="link"><div id="dot"></div><div id="linkTxt">not connected</div></div>
+  <header data-tauri-drag-region>
+    <div class="top" data-tauri-drag-region>
+      <div class="word" data-tauri-drag-region>CLIO</div>
+      <div class="link" data-tauri-drag-region>
+        <div id="dot"></div><div id="linkTxt" data-tauri-drag-region>not connected</div>
+        <div class="controls">
+          <button data-win="minimise" title="Minimise (Ctrl+M)" aria-label="Minimise">
+            <svg viewBox="0 0 12 12"><path d="M2 6.5h8"/></svg>
+          </button>
+          <button data-win="maximise" title="Maximise" aria-label="Maximise">
+            <svg viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1"/></svg>
+          </button>
+          <button data-win="fullscreen" title="Fullscreen (F11)" aria-label="Fullscreen">
+            <svg viewBox="0 0 12 12"><path d="M2 4.4V2h2.4M7.6 2H10v2.4M10 7.6V10H7.6M4.4 10H2V7.6"/></svg>
+          </button>
+          <button data-win="close" title="Close panel" aria-label="Close panel">
+            <svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
     <nav role="tablist">
       <button role="tab" data-tab="chat" aria-selected="true">Chat</button>
@@ -147,6 +201,7 @@
   </main>
 
 <script src="clio-bus.js"></script>
+<script src="window.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>
