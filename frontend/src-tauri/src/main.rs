@@ -12,7 +12,9 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
-use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri_plugin_autostart::MacosLauncher;
+#[cfg(not(debug_assertions))]
+use tauri_plugin_autostart::ManagerExt;
 
 fn show_window(app: &AppHandle, label: &str) {
     if let Some(win) = app.get_webview_window(label) {
@@ -38,10 +40,10 @@ fn main() {
             // at a server nobody started: "can't reach this page", followed by
             // a port number. That is exactly what was happening.
             //
-            // So a debug build clears the entry instead of adding one, which
-            // also repairs a machine that already has the bad path registered.
-            #[cfg(debug_assertions)]
-            let _ = app.autolaunch().disable();
+            // So a debug build leaves the entry alone - it neither adds itself
+            // nor removes the release build's. (Found live, 2026-09-21: a debug
+            // exe built before this rule still re-registered itself, so the
+            // boot window came back. Rebuilding debug replaces that exe.)
             #[cfg(not(debug_assertions))]
             let _ = app.autolaunch().enable();
 
