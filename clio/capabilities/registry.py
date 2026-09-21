@@ -215,6 +215,28 @@ def register_capabilities(o) -> None:
             tier="fast",
         )
 
+    async def shell_command(payload: object) -> str:
+        spoken, output = await o._shell.run(payload)  # type: ignore[arg-type]
+        # A command's output is for reading: the whole of it goes to the chat
+        # window, and she says only the gist.
+        if output:
+            await o._emit("clio.transcript", {"role": "assistant", "text": output})
+        return spoken
+
+    def match_shell(read_only: bool | None):
+        """read_only=None claims refusals only; True and False split what may
+        run by whether it needs asking first."""
+        def matcher(text: str):
+            request = o._shell.resolve(text)
+            if request is None:
+                return None
+            if read_only is None:
+                return request if request.refusal else None
+            if request.refusal or request.read_only is not read_only:
+                return None
+            return request
+        return matcher
+
     async def file_write(payload: object) -> str:
         request = payload  # type: ignore[assignment]
         spoken = await o._writer.run(request)
@@ -448,6 +470,13 @@ def register_capabilities(o) -> None:
     # something that was going to be refused anyway: "send" only matches once
     # every guard has passed, and its description is the readback the gate
     # speaks. Otherwise "send_blocked" matches and simply says why not.
+    # Spoken commands before projects: "run pip install requests in ewaste" is a
+    # command in a project, not a project called "pip install requests in
+    # ewaste". Each only claims a sentence whose first word names a program.
+    r.register("shell_blocked", match_shell(None), shell_command)
+    r.register("shell_read", match_shell(True), shell_command)
+    r.register("shell", match_shell(False), shell_command,
+               describe=lambda payload: o._shell.describe(payload))
     # Projects before open/launch and before the timer's "stop": "run the
     # ewaste training" is a job, not an app to open, and "stop the training" is
     # not a timer. Both only claim the sentence when the name is registered.

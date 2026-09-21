@@ -60,6 +60,9 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "file_write": Permission.FREE,     # create and copy make new things; nothing overwritten
     "file_move": Permission.CONFIRM,   # rename and move break paths other things point at
     "file_delete": Permission.CONFIRM, # to the Recycle Bin, but a misheard name is still wrong
+    "shell": Permission.CONFIRM,        # a spoken command, read back exactly before it runs
+    "shell_read": Permission.FREE,      # git status, pip list: commands that only look
+    "shell_blocked": Permission.FREE,   # says why a command won't run; runs nothing
     "send_blocked": Permission.FREE,  # says why a send was refused; sends nothing
     "draft": Permission.FREE,      # writes a draft to Gmail; sending is its own tier
 }

@@ -18,6 +18,7 @@ from clio.capabilities.remind import ReminderCapability
 from clio.capabilities.draft import DraftCapability
 from clio.capabilities.filewrite import FileWriter
 from clio.capabilities.projects import ProjectCapability
+from clio.capabilities.shellcmd import ShellCommands
 from clio.capabilities.email import EmailCapability
 from clio.capabilities.tasks import TaskList
 from clio.capabilities.timer import TimerCapability
@@ -165,6 +166,9 @@ class Orchestrator:
             projects or {}, self._file_roots, self._jobs, config_path=config_path)
         # The write half of 3.6, fenced into the same roots the read half uses.
         self._writer = FileWriter(self._file_roots)
+        # Spoken commands (7.5): same roots, same projects, and the same job
+        # runner, so a slow command becomes a job like any project run.
+        self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
         # "Undo that" belongs to whichever of files or the clipboard changed
         # something most recently. Empty until one of them does.
         self._last_undoable = ""

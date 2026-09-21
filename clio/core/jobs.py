@@ -124,26 +124,33 @@ class JobRunner:
 
     # --- starting and stopping ---
 
-    def start(self, name: str, command: str, folder: Path) -> Job:
-        """Detached, with output to a file. Raises OSError for the caller to say."""
+    def start(self, name: str, command: str | list[str], folder: Path) -> Job:
+        """Detached, with output to a file. Raises OSError for the caller to say.
+
+        A string runs through the shell; a list runs with none. Registered
+        projects are strings, because their commands are real command lines
+        ("npm run dev") from a config file he approved. Spoken commands (7.5)
+        are lists, because nothing that came out of a microphone should ever
+        meet a shell - no filter on `;` or `&&` is as safe as having nothing
+        there to interpret them."""
         self._logs.mkdir(parents=True, exist_ok=True)
+        shown = command if isinstance(command, str) else " ".join(command)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        log_path = self._logs / f"{name}-{stamp}.log"
+        safe_name = re.sub(r"[^\w.-]+", "-", name).strip("-") or "job"
+        log_path = self._logs / f"{safe_name}-{stamp}.log"
         handle = log_path.open("w", encoding="utf-8", errors="replace")
-        handle.write(f"$ {command}\n  in {folder}\n\n")
+        handle.write(f"$ {shown}\n  in {folder}\n\n")
         handle.flush()
 
-        # shell=True because the registry holds real command lines ("npm run
-        # dev"), which are shell syntax rather than an argv list. What makes
-        # that safe is where the string came from: a config file he approved,
-        # never a sentence.
         creation = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        # No console window flashing up for a spoken command.
+        creation |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
         process = subprocess.Popen(
-            command, cwd=str(folder), shell=True, stdout=handle,
+            command, cwd=str(folder), shell=isinstance(command, str), stdout=handle,
             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             creationflags=creation,
         )
-        job = Job(name=name, pid=process.pid, command=command, folder=str(folder),
+        job = Job(name=name, pid=process.pid, command=shown, folder=str(folder),
                   log=str(log_path), started=time.time(), created=_created(process.pid))
         self._remember(job)
         log.info("Job started", extra={"extra_fields": {
@@ -285,6 +292,11 @@ class JobRunner:
         temp = self._file.with_suffix(".json.tmp")
         temp.write_text(json.dumps([asdict(j) for j in jobs], indent=2), encoding="utf-8")
         temp.replace(self._file)
+
+    def forget(self, name: str) -> None:
+        """Drop a finished job from the list. For a command that ended inside
+        the turn that started it (7.5): there is nothing left to report later."""
+        self._forget(name)
 
     def _remember(self, job: Job) -> None:
         self._write([j for j in self._load() if j.name != job.name] + [job])

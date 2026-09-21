@@ -55,6 +55,8 @@ _DESCRIPTIONS = {
     "file_write": "make folders and copy files",
     "file_move": "rename and move them",
     "file_delete": "bin them, with an undo",
+    "shell": "run commands in your projects",
+    "shell_read": "check git status and what's installed",
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
@@ -66,7 +68,7 @@ _DESCRIPTIONS = {
 # Not worth listing: he cannot usefully "ask for" these.
 # send_blocked only ever says why a send was refused, so it is not a thing she
 # can offer to do.
-_UNLISTED = {"stop", "repeat", "help", "send_blocked"}
+_UNLISTED = {"stop", "repeat", "help", "send_blocked", "shell_blocked"}
 
 # Spoken order (not registration order, which is by match precedence). Only the
 # headline of each group — a spoken answer shouldn't recite a long list.
