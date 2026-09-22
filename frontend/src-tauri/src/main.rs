@@ -16,6 +16,11 @@ use tauri_plugin_autostart::MacosLauncher;
 #[cfg(not(debug_assertions))]
 use tauri_plugin_autostart::ManagerExt;
 
+use std::net::TcpStream;
+use std::path::Path;
+use std::process::{Child, Command};
+use std::sync::Mutex;
+
 fn show_window(app: &AppHandle, label: &str) {
     if let Some(win) = app.get_webview_window(label) {
         let _ = win.show();
@@ -23,9 +28,35 @@ fn show_window(app: &AppHandle, label: &str) {
     }
 }
 
+// The Python core - microphone, wake word, voice - is its own process. Without
+// this, the window came up at login and she never heard the wake word, because
+// nothing had started her. So the shell starts the core, unless one is already
+// listening on 8765 (a core started by hand while developing).
+//
+// ponytail: the repo path is baked in at compile time (CARGO_MANIFEST_DIR), so
+// the exe only works from this checkout. Packaging for another machine needs a
+// configured path instead.
+fn start_core() -> Option<Child> {
+    if TcpStream::connect("127.0.0.1:8765").is_ok() {
+        return None;
+    }
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
+    let mut command = Command::new(repo.join(".venv").join("Scripts").join("pythonw.exe"));
+    command.args(["-m", "clio"]).current_dir(repo);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command.spawn().ok()
+}
+
+struct Core(Mutex<Option<Child>>);
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .manage(Core(Mutex::new(start_core())))
         .setup(|app| {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.set_always_on_top(true);
@@ -75,7 +106,23 @@ fn main() {
                         // The core owns the mute state; the webview relays it.
                         let _ = app.emit("tray-mute", ());
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        // Quitting Clio quits her - a core left behind would
+                        // keep the microphone open with no window to show it.
+                        // The venv's pythonw.exe is a launcher that starts the
+                        // real interpreter as a child, so kill the whole tree.
+                        if let Some(child) = app.state::<Core>().0.lock().unwrap().take() {
+                            let mut kill = Command::new("taskkill");
+                            kill.args(["/PID", &child.id().to_string(), "/T", "/F"]);
+                            #[cfg(windows)]
+                            {
+                                use std::os::windows::process::CommandExt;
+                                kill.creation_flags(0x0800_0000);
+                            }
+                            let _ = kill.status();
+                        }
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
