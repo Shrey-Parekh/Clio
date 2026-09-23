@@ -135,6 +135,14 @@ def resolve(text: str, shortcuts: dict[str, str] | None = None) -> Target | None
     return Target(name=target, path="", kind="unknown")
 
 
+def describe_target(target: Target) -> str:
+    """What opening it will do, for a readback. An unknown target says so,
+    rather than promising a launch that will not happen."""
+    if target.kind == "unknown":
+        return f"I don't know anything called {target.name} to open"
+    return f"Opening {target.name}"
+
+
 def open_target(target: Target) -> str:
     if target.kind == "unknown":
         return f"I couldn't find anything called {target.name}."

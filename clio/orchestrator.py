@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import numpy as np
 
+from clio.capabilities import rephrase
 from clio.capabilities.clipboard import Clipboard
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.notes import NoteBook
@@ -798,13 +800,48 @@ class Orchestrator:
         self._record_correction(text)
 
         steps = self._router.plan(text)
-        if not steps:
-            return None
         self._intent_used_llm = False
+        if not steps:
+            guessed = await self._reworded(text)
+            if guessed is None:
+                return None
+            steps = [guessed]
+            self._intent_used_llm = True
         spoken = await self._run_plan(steps)
         # Most intents are free; summarising a file isn't, and that must be
         # reported so the session is accounted for.
         return spoken, self._intent_used_llm
+
+    async def _reworded(self, text: str) -> Match | None:
+        """7.6: nothing matched, but it sounds like an order. The model rewords
+        it into a sentence the router knows, and the router - not the model -
+        decides what that is and whether it may run. Always read back first,
+        because it was a guess. Any failure here means ordinary conversation."""
+        if not rephrase.looks_like_action(text):
+            return None
+        registered = {c.name for c in self._router.capabilities()}
+        offered = [name for name in rephrase.EXAMPLES if name in registered]
+        try:
+            said = await rephrase.rephrase(self._llm, text, offered)
+        except Exception:
+            log.exception("Rewording failed")
+            return None
+        matched = self._router.match(said) if said else None
+        if matched is None or matched.intent not in offered:
+            return None
+        # "open" claims anything shaped like "run X", so a guess naming nothing
+        # installed would only earn "I couldn't find it" after he said yes.
+        if matched.intent == "open" and getattr(matched._payload, "kind", "") == "unknown":
+            return None
+        if matched.permission is Permission.BLOCKED:
+            return matched
+        # The sentence says what she understood; the description says what will
+        # actually happen. Both, because they can differ: live, with no projects
+        # registered, "run the ewaste project" was going to open a folder.
+        readback = f"You mean: {said}"
+        if matched.description != matched.intent:
+            readback += f". {matched.description}"
+        return dataclasses.replace(matched, permission=Permission.CONFIRM, description=readback)
 
     async def _prepare_prompt(self, text: str) -> None:
         # Retrieval happens only on the LLM path - a deterministic command must

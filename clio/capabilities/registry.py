@@ -24,7 +24,7 @@ from clio.capabilities.convert import format_conversion, parse_conversion
 from clio.capabilities.currency import convert_currency, parse_currency_request
 from clio.capabilities.diagnose import explain_failure, is_diagnosis_query
 from clio.capabilities.files import look_up, parse_file_request
-from clio.capabilities.launch import open_target, resolve as resolve_target
+from clio.capabilities.launch import describe_target, open_target, resolve as resolve_target
 from clio.capabilities.network import describe_network, parse_network_request
 from clio.capabilities.notes import parse_note_request
 from clio.capabilities.remind import (
@@ -515,4 +515,4 @@ def register_capabilities(o) -> None:
     r.register("convert", parse_conversion, convert_units)
     r.register("calculate", parse_calculation, calculate)
     # Last: its verbs are the broadest, so every narrower matcher gets first refusal.
-    r.register("open", lambda t: resolve_target(t, o._shortcuts), open_thing)
+    r.register("open", lambda t: resolve_target(t, o._shortcuts), open_thing, describe=describe_target)
