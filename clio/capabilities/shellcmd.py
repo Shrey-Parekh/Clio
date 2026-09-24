@@ -129,25 +129,37 @@ class ShellCommands:
 
     async def run(self, request: ShellRequest) -> tuple[str, str]:
         """What to say, plus the full output for the chat window."""
+        _, spoken, output = await self.run_until(request, INLINE_S)
+        return spoken, output
+
+    async def run_until(self, request: ShellRequest, wait_s: float) -> tuple[bool | None, str, str]:
+        """(finished cleanly?, what to say, output). None means it was still
+        going after wait_s and carries on as a background job. A plan (7.7)
+        waits longer than a single command, because the next step usually needs
+        this one finished - an install before the training.
+
+        ponytail: "cleanly" is read from the log (jobs.explain), since detached
+        jobs have no exit code. A failure that prints nothing recognisable
+        counts as success; record exit codes in the runner if that bites."""
         if request.refusal:
-            return request.refusal, ""
+            return False, request.refusal, ""
         tool = request.argv[0]
         prefix = shell.command_for(tool, request.folder)
         if prefix is None:
-            return f"{tool} isn't installed on this machine, or it isn't on the path.", ""
+            return False, f"{tool} isn't installed on this machine, or it isn't on the path.", ""
 
         name = " ".join(request.argv[:2])
         try:
             job = await asyncio.to_thread(
                 self._runner.start, name, [*prefix, *request.argv[1:]], request.folder)
         except OSError as exc:
-            return f"Windows wouldn't start {tool}: {exc.strerror or exc}.", ""
+            return False, f"Windows wouldn't start {tool}: {exc.strerror or exc}.", ""
         log.info("Command started", extra={"extra_fields": {
             "command": request.shown, "folder": request.folder.name,
             "read_only": request.read_only}})
 
         waited = 0.0
-        while waited < INLINE_S and self._runner.is_alive(job):
+        while waited < wait_s and self._runner.is_alive(job):
             await asyncio.sleep(_POLL_S)
             waited += _POLL_S
 
@@ -155,15 +167,15 @@ class ShellCommands:
             # Still going: it becomes a job like any other, with status, logs,
             # "stop it" and an announcement when it ends.
             self._runner.watch(job)
-            return (f"{request.shown} is still going, so it's carrying on in the background. "
-                    "I'll tell you when it's done."), ""
+            return None, (f"{request.shown} is still going, so it's carrying on in the "
+                          "background. I'll tell you when it's done."), ""
 
         self._runner.forget(job.name)
         output = _output(self._runner.tail(job, 80))
         reason = jobs.explain(output)
         if reason:
-            return f"That didn't work: {reason}.", output
-        return _spoken(request.shown, output), output
+            return False, f"That didn't work: {reason}.", output
+        return True, _spoken(request.shown, output), output
 
 
 def _output(logged: str) -> str:

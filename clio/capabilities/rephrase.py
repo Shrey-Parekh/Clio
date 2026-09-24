@@ -67,6 +67,15 @@ _ACTION = re.compile(
 )
 _NONE = "NONE"
 _MAX_CHARS = 160
+# Found live: asked to "pull the latest ewaste code", the model said NONE - no
+# example showed that git and pip commands are sayable at all.
+_PROGRAMS = ("Programs (git, pip, python, npm, cargo) run as: run <command and its "
+             "arguments> in <project or folder>, e.g. run git pull in ewaste. "
+             "Never invent a script or file name he did not say; to start or train a "
+             "project, say run the <name> project.")
+# Also found live: "start training" became "run python train.py in ewaste" - a
+# script name nobody said. Starting a project goes through its registered
+# command (7.2), never one the model made up.
 
 
 def looks_like_action(text: str) -> bool:
@@ -79,7 +88,7 @@ def prompt(text: str, offered: list[str]) -> str:
     return (
         "You turn a spoken request into one short command for a voice assistant "
         "that only understands commands shaped like these examples:\n"
-        f"{lines}\n\n"
+        f"{lines}\n{_PROGRAMS}\n\n"
         "Rewrite the request as ONE command in the same shape, keeping his names, "
         "numbers and places exactly. Reply with the command only - no quotes, no "
         f"explanation. If it is not one of these kinds of command, reply {_NONE}.\n\n"
@@ -97,6 +106,58 @@ def clean(raw: str | None) -> str | None:
     if not line or line.upper().startswith(_NONE) or len(line) > _MAX_CHARS:
         return None
     return line
+
+
+# --- 7.7: several steps in one sentence ---
+
+MAX_STEPS = 6
+_JOINED = re.compile(r"\b(?:and|then)\b|,", re.IGNORECASE)
+_NUMBERING = re.compile(r"^\s*(?:\d+[.):]|[-*•])\s*")
+
+
+def looks_like_plan(text: str) -> bool:
+    """An order with a join in it: "pull ewaste, install its requirements and
+    start training". Whether it really is several steps is the model's call."""
+    return looks_like_action(text) and bool(_JOINED.search(text))
+
+
+def plan_prompt(text: str, offered: list[str]) -> str:
+    lines = "\n".join(f"- {EXAMPLES[name]}" for name in offered)
+    return (
+        "You break a spoken request into the steps a voice assistant should run, "
+        "in order. It only understands commands shaped like these examples:\n"
+        f"{lines}\n{_PROGRAMS}\n\n"
+        "Write one command per line, in the same shape as the examples, keeping his "
+        "names, numbers, folders and projects exactly. Use the fewest steps that do "
+        f"what he asked, at most {MAX_STEPS}. No numbering, no explanation. If any "
+        f"part cannot be said as one of these kinds of command, reply {_NONE}.\n\n"
+        f"Request: {text}"
+    )
+
+
+def parse_steps(raw: str | None) -> list[str] | None:
+    """The model's plan as sentences to route, or None. A NONE anywhere means
+    it could not say part of it - better nothing than a plan with a hole."""
+    steps = []
+    for line in (raw or "").splitlines():
+        said = clean(_NUMBERING.sub("", line))
+        if said is None:
+            if line.strip().upper().startswith(_NONE):
+                return None
+            continue
+        steps.append(said)
+    return steps or None
+
+
+async def plan(llm, text: str, offered: list[str]) -> list[str] | None:
+    """The request as ordered sentences Clio knows, or None. The reasoning
+    tier: ordering a messy sentence is where the small model slips."""
+    if not offered:
+        return None
+    raw = await llm.complete([{"role": "user", "content": plan_prompt(text, offered)}])
+    steps = parse_steps(raw)
+    log.info("Planned a request", extra={"extra_fields": {"heard": text, "steps": steps}})
+    return steps
 
 
 async def rephrase(llm, text: str, offered: list[str]) -> str | None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -58,6 +59,10 @@ _SETTLE_AFTER = {"open": 1.5}
 # Long enough to read what it is about to do, short enough that a yes typed much
 # later is answering some other question.
 _PENDING_CONFIRM_S = 60.0
+# 7.7: active work one request may take, per the brief. A long job inside a
+# plan (training) is started and handed to the job runner, not waited on.
+_PLAN_BUDGET_S = 15 * 60.0
+_COUNTS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 
 # How often to prove the microphone is still delivering while nothing matches.
 _WAKE_HEARTBEAT_S = 15.0
@@ -802,7 +807,15 @@ class Orchestrator:
         steps = self._router.plan(text)
         self._intent_used_llm = False
         if not steps:
-            guessed = await self._reworded(text)
+            if rephrase.looks_like_plan(text):
+                # Several parts: a plan or nothing. Falling back to a single
+                # guess would quietly do half of what he asked.
+                planned = await self._planned(text)
+                if isinstance(planned, str):
+                    return planned, True
+                guessed = planned
+            else:
+                guessed = await self._reworded(text)
             if guessed is None:
                 return None
             steps = [guessed]
@@ -819,20 +832,46 @@ class Orchestrator:
         because it was a guess. Any failure here means ordinary conversation."""
         if not rephrase.looks_like_action(text):
             return None
-        registered = {c.name for c in self._router.capabilities()}
-        offered = [name for name in rephrase.EXAMPLES if name in registered]
+        offered = self._offered()
         try:
             said = await rephrase.rephrase(self._llm, text, offered)
         except Exception:
             log.exception("Rewording failed")
             return None
+        matched = self._as_guess(said, offered, text)
+        return None if matched is None else self._read_back(said, matched)
+
+    def _offered(self) -> list[str]:
+        """What the model may pick from: the examples that are registered."""
+        registered = {c.name for c in self._router.capabilities()}
+        return [name for name in rephrase.EXAMPLES if name in registered]
+
+    def _as_guess(self, said: str | None, offered: list[str], heard: str) -> Match | None:
+        """The router's reading of the model's sentence, if it is one on offer."""
         matched = self._router.match(said) if said else None
         if matched is None or matched.intent not in offered:
             return None
+        # Found live: "start training" became "run python train.py in ewaste",
+        # a script nobody named - on one run in three, whatever the prompt said.
+        # A file in a command must be one he said, at least by its name.
+        for arg in getattr(matched._payload, "argv", [])[1:]:
+            stem = re.match(r"^([\w-]+)\.\w+$", arg.replace("\\", "/").split("/")[-1])
+            if stem and not re.search(rf"\b{re.escape(stem.group(1))}\b", heard, re.IGNORECASE):
+                log.info("Guess named a file he didn't", extra={"extra_fields": {"file": arg}})
+                return None
         # "open" claims anything shaped like "run X", so a guess naming nothing
         # installed would only earn "I couldn't find it" after he said yes.
         if matched.intent == "open" and getattr(matched._payload, "kind", "") == "unknown":
             return None
+        return matched
+
+    @staticmethod
+    def _step_label(said: str, matched: Match) -> str:
+        """What will actually happen, when the intent can say; else the sentence."""
+        return matched.description if matched.description != matched.intent else said
+
+    @staticmethod
+    def _read_back(said: str, matched: Match) -> Match:
         if matched.permission is Permission.BLOCKED:
             return matched
         # The sentence says what she understood; the description says what will
@@ -842,6 +881,107 @@ class Orchestrator:
         if matched.description != matched.intent:
             readback += f". {matched.description}"
         return dataclasses.replace(matched, permission=Permission.CONFIRM, description=readback)
+
+    async def _planned(self, text: str) -> Match | str | None:
+        """7.7: an order with several parts the router could not split. The
+        reasoning model writes the steps as sentences the router knows; every
+        one must match, or nothing runs. The result is one confirm-tier action
+        whose readback is the whole plan - so his one yes covers it, through the
+        same gate as everything else, typed or spoken. A string is a refusal to
+        say; None means conversation."""
+        if not rephrase.looks_like_plan(text):
+            return None
+        offered = self._offered()
+        try:
+            said = await rephrase.plan(self._llm, text, offered)
+        except Exception:
+            log.exception("Planning failed")
+            return None
+        if not said:
+            return None
+        if len(said) > rephrase.MAX_STEPS:
+            return (f"That's {len(said)} steps, more than I'll run in one go. "
+                    "Give me it in two halves.")
+        steps: list[tuple[str, Match]] = []
+        for sentence in said:
+            matched = self._as_guess(sentence, offered, text)
+            if matched is None:
+                # Found live: the likeliest miss is a project he never
+                # registered, and that one has a fix he can say.
+                project = re.match(r"^run the (.+?) project$", sentence, re.IGNORECASE)
+                if project:
+                    return (f"{project.group(1)} isn't one of your registered projects yet, so "
+                            f"I haven't started any of it. Say register {project.group(1)} first.")
+                return (f"I couldn't turn '{sentence}' into something I can do, "
+                        "so I haven't started any of it.")
+            if matched.permission is Permission.BLOCKED:
+                return f"'{sentence}' is off limits, so I haven't started any of it."
+            steps.append((sentence, matched))
+        if len(steps) == 1:
+            return self._read_back(*steps[0])
+
+        count = _COUNTS.get(len(steps), str(len(steps)))
+        listed = ". ".join(f"{_COUNTS[i].capitalize()}, {self._step_label(s, m)}"
+                           for i, (s, m) in enumerate(steps, start=1))
+        log.info("Plan proposed", extra={"extra_fields": {"steps": [m.intent for _, m in steps]}})
+
+        async def run_plan(_payload: object) -> str:
+            return await self._run_approved(steps)
+
+        return Match(intent="plan", permission=Permission.CONFIRM,
+                     description=f"{count.capitalize()} steps. {listed}",
+                     _handler=run_plan, _payload=None)
+
+    async def _run_approved(self, steps: list[tuple[str, Match]]) -> str:
+        """Runs an approved plan. His yes covered every step, except one that
+        destroys something - that still asks on its own. A command still going
+        is waited on, because the next step usually needs it done, up to the
+        budget. A failure stops the chain, and the reply says where."""
+        deadline = time.monotonic() + _PLAN_BUDGET_S
+        said: list[str] = []
+
+        def stopped(index: int, why: str) -> str:
+            label = self._step_label(*steps[index - 1])
+            remaining = len(steps) - index
+            tail = "" if remaining == 0 else (
+                " I haven't done the step after it." if remaining == 1
+                else f" I haven't done the {_COUNTS.get(remaining, remaining)} steps after it.")
+            return f"{' '.join(said)} Stopped at step {index}, {label}. {why}{tail}".strip()
+
+        for index, (sentence, step) in enumerate(steps, start=1):
+            label = self._step_label(sentence, step)
+            log.info("Plan step", extra={"extra_fields": {
+                "step": index, "of": len(steps), "intent": step.intent}})
+            await self._emit("clio.transcript", {
+                "role": "assistant", "text": f"Step {index} of {len(steps)}: {label}"})
+
+            if getattr(step._payload, "warning", ""):
+                if self._typed:
+                    return stopped(index, "That one destroys something, so it needs its own yes. "
+                                          "Say it on its own.")
+                if not await self._confirm(f"{label}. Should I go ahead?"):
+                    return stopped(index, "You said no.")
+
+            remaining_s = deadline - time.monotonic()
+            if remaining_s <= 0:
+                return stopped(index, "That's the time I give one request.")
+            try:
+                if step.intent in ("shell", "shell_read"):
+                    ok, reply, output = await self._shell.run_until(step._payload, remaining_s)
+                    if output:
+                        await self._emit("clio.transcript", {"role": "assistant", "text": output})
+                    if not ok:
+                        # None: still going, and carries on as a background job.
+                        return stopped(index, reply)
+                else:
+                    reply = await step.run()
+            except Exception as exc:
+                await report_error(self._bus, exc, context=f"plan step {index}, {label}",
+                                   source="clio.orchestrator")
+                return stopped(index, describe_error(exc).spoken)
+            if reply:
+                said.append(reply)
+        return " ".join(said) or "Done, all of it."
 
     async def _prepare_prompt(self, text: str) -> None:
         # Retrieval happens only on the LLM path - a deterministic command must
