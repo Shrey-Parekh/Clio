@@ -516,7 +516,17 @@
     - Steps run through 2.7's machinery. Each step passes its own permission check, a failure stops the chain, and the report says what ran and where it stopped.
     - A step budget and a time budget cap every task (about 15 minutes of active work, per the brief). A long job inside the plan is handed to 7.2 and reported by 7.3, not waited on.
     - Progress is published on the event bus, so the HUD and chat window show which step is running.
-  - [ ] **7.8** Software management - "install 7-Zip", "update everything", through `winget`.
+  - [x] **7.8** Software management - "install 7-Zip", "update everything", through `winget`.
+    - **Built** (`clio/core/winget.py`, `clio/capabilities/software.py`; spec `docs/superpowers/specs/2026-09-25-software-management-design.md`). Install, update and uninstall are CONFIRM and read back the exact id. Asking what needs updating, or whether something is installed, is FREE. If the name isn't a clear match she lists three and he picks. **"Update everything" is refused (his choice: one app at a time)**, and an uninstall says it can't be undone. The command is non-interactive winget, from its own catalogue, run as a background job.
+    - Live-verified through the real router and real winget, reading only, with nothing installed:
+      - "what needs updating" said 33 apps.
+      - "is vlc installed" answered yes, version 3.0.23.
+      - "install 7zip" read back id `7zip.7zip`.
+      - "update chrome" read back 153 to 154, id `Google.Chrome.EXE`.
+      - "uninstall vlc" read back its Store id.
+      - "update everything" was refused.
+    - **Found live:** "install zip" confidently read back LiteMonitor, a system monitor whose publisher registered the short name "zip", so short names no longer count. And "update my notes" became Microsoft Sticky Notes after 7 seconds of winget, so a name starting with "my" is now left for notes and tasks.
+    - Not verified: a real install, update or uninstall; that needs his yes.
     - CONFIRM for install, upgrade and uninstall, reading back the exact package ID so a similarly named package is not installed by mistake. Listing what is installed or out of date is FREE.
 
   ---

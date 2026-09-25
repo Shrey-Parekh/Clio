@@ -473,6 +473,25 @@ def register_capabilities(o) -> None:
     # Spoken commands before projects: "run pip install requests in ewaste" is a
     # command in a project, not a project called "pip install requests in
     # ewaste". Each only claims a sentence whose first word names a program.
+    # 7.8. Before the broad verbs below: "update Chrome" is about software,
+    # and "install X" is never a shell command without a tool named first.
+    def match_software(changes: bool):
+        def matcher(text: str):
+            request = o._software.resolve(text)
+            return request if request is not None and request.changes == changes else None
+        return matcher
+
+    async def software_read(payload: object) -> str:
+        if payload.listing:  # type: ignore[attr-defined]
+            await o._emit("clio.transcript", {"role": "assistant", "text": payload.listing})  # type: ignore[attr-defined]
+        return payload.said  # type: ignore[attr-defined]
+
+    async def software(payload: object) -> str:
+        return await o._software.run(payload)  # type: ignore[arg-type]
+
+    r.register("software_read", match_software(False), software_read, offline=False)
+    r.register("software", match_software(True), software,
+               describe=lambda payload: o._software.describe(payload), offline=False)
     r.register("shell_blocked", match_shell(None), shell_command)
     r.register("shell_read", match_shell(True), shell_command)
     r.register("shell", match_shell(False), shell_command,

@@ -62,6 +62,8 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "file_delete": Permission.CONFIRM, # to the Recycle Bin, but a misheard name is still wrong
     "shell": Permission.CONFIRM,        # a spoken command, read back exactly before it runs
     "shell_read": Permission.FREE,      # git status, pip list: commands that only look
+    "software": Permission.CONFIRM,     # install, update, uninstall - read back with the exact id
+    "software_read": Permission.FREE,   # what needs updating, is it installed, which one
     "shell_blocked": Permission.FREE,   # says why a command won't run; runs nothing
     "send_blocked": Permission.FREE,  # says why a send was refused; sends nothing
     "draft": Permission.FREE,      # writes a draft to Gmail; sending is its own tier

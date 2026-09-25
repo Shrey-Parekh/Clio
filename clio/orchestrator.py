@@ -22,6 +22,7 @@ from clio.capabilities.draft import DraftCapability
 from clio.capabilities.filewrite import FileWriter
 from clio.capabilities.projects import ProjectCapability
 from clio.capabilities.shellcmd import ShellCommands
+from clio.capabilities.software import Software
 from clio.capabilities.email import EmailCapability
 from clio.capabilities.tasks import TaskList
 from clio.capabilities.timer import TimerCapability
@@ -176,6 +177,7 @@ class Orchestrator:
         # Spoken commands (7.5): same roots, same projects, and the same job
         # runner, so a slow command becomes a job like any project run.
         self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
+        self._software = Software(self._jobs)
         # "Undo that" belongs to whichever of files or the clipboard changed
         # something most recently. Empty until one of them does.
         self._last_undoable = ""

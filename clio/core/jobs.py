@@ -61,37 +61,15 @@ _FAILURES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"npm ERR!.*?(missing script: .+)", re.I), "npm says {0}"),
     (re.compile(r"disk (?:is )?full|No space left on device", re.I),
      "the disk is full"),
-]
-# The last "SomeError: message" line, when nothing above matched.
-_LAST_EXCEPTION = re.compile(r"^\s*(\w*(?:Error|Exception|Failure))\b:?\s*(.*)$")
-# Long enough that he has probably stopped watching, which is the whole reason
-# a job runs in the background. Shorter than this and a toast is just noise.
-_TOAST_AFTER_S = 60.0
-
-# What went wrong, in his words rather than the traceback's. Deterministic and
-# free: these are the failures that actually happen, and a model is no better at
-# reading "CUDA out of memory" than a regex is. Anything unmatched falls through
-# to the last exception line, which is at least true.
-_FAILURES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"cuda (?:error )?out of memory|torch\.cuda\.OutOfMemoryError", re.I),
-     "it ran out of GPU memory"),
-    (re.compile(r"\bMemoryError\b|Cannot allocate memory", re.I),
-     "it ran out of memory"),
-    (re.compile(r"ModuleNotFoundError: No module named ['\"]([\w.]+)", re.I),
-     "the {0} module isn't installed"),
-    (re.compile(r"FileNotFoundError.*?['\"]([^'\"]{3,60})['\"]", re.I),
-     "it couldn't find {0}"),
-    (re.compile(r"PermissionError|Access is denied", re.I),
-     "Windows wouldn't let it open a file it needed"),
-    (re.compile(r"address already in use|EADDRINUSE|10048", re.I),
-     "the port it wanted is already in use"),
-    (re.compile(r"SyntaxError: (.+)", re.I), "there's a syntax error in it: {0}"),
-    (re.compile(r"KeyboardInterrupt", re.I), "something interrupted it"),
-    (re.compile(r"(?:command not found|is not recognized as an internal)", re.I),
-     "the command isn't on this machine"),
-    (re.compile(r"npm ERR!.*?(missing script: .+)", re.I), "npm says {0}"),
-    (re.compile(r"disk (?:is )?full|No space left on device", re.I),
-     "the disk is full"),
+    # winget (7.8). 1602 and 1223 are a declined admin prompt, not a broken app.
+    (re.compile(r"exit code: (?:1602|1223)\b", re.I),
+     "it was cancelled - the admin prompt was probably declined"),
+    (re.compile(r"Installer failed with exit code: (-?\d+)", re.I),
+     "the installer failed with code {0}"),
+    (re.compile(r"No (?:installed )?package found matching", re.I),
+     "winget couldn't find that package"),
+    (re.compile(r"No (?:applicable|available) upgrade found", re.I),
+     "there was no newer version to install"),
 ]
 # The last "SomeError: message" line, when nothing above matched.
 _LAST_EXCEPTION = re.compile(r"^\s*(\w*(?:Error|Exception|Failure))\b:?\s*(.*)$")

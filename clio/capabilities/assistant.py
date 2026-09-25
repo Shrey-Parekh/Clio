@@ -56,6 +56,8 @@ _DESCRIPTIONS = {
     "file_move": "rename and move them",
     "file_delete": "bin them, with an undo",
     "shell": "run commands in your projects",
+    "software": "install, update and uninstall apps",
+    "software_read": "tell you which apps need updating",
     "shell_read": "check git status and what's installed",
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
