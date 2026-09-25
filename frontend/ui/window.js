@@ -3,8 +3,8 @@
  * The windows have no native frame - decorations are off, which is what makes
  * the HUD look like an instrument rather than a dialog. The cost is that
  * everything a frame gives you for free has to exist here instead: dragging,
- * resizing from the edges, minimise, maximise, fullscreen, and coming back the
- * size he left it.
+ * resizing from the edges, minimise, maximise, fullscreen, and coming back
+ * where he left it.
  *
  * The header markup carries `data-tauri-drag-region`, which Tauri handles
  * natively. What it replaced was `-webkit-app-region: drag`, which is
@@ -138,19 +138,19 @@
     });
   }
 
-  /* --- come back the size he left it --------------------------------- */
+  /* --- come back where he left it, at its normal size ----------------- */
 
   var saving = null;
   function remember() {
     clearTimeout(saving);
     saving = setTimeout(function () {
-      Promise.all([win.outerPosition(), win.outerSize(), win.isMaximized()])
+      Promise.all([win.outerPosition(), win.isMaximized(), win.isFullscreen(), win.isMinimized()])
         .then(function (state) {
-          if (state[2]) return;      // a maximised window has no size worth keeping
+          // Maximised and fullscreen have no position worth keeping, and a
+          // minimised window sits at -32000 - saved, it replaced the real one.
+          if (state[1] || state[2] || state[3]) return;
           try {
-            localStorage.setItem(store, JSON.stringify({
-              x: state[0].x, y: state[0].y, w: state[1].width, h: state[1].height
-            }));
+            localStorage.setItem(store, JSON.stringify({ x: state[0].x, y: state[0].y }));
           } catch (err) { /* private mode, or storage full: not worth a word */ }
         })
         .catch(function () {});
@@ -160,18 +160,17 @@
   function restore() {
     var saved;
     try { saved = JSON.parse(localStorage.getItem(store) || 'null'); } catch (err) { saved = null; }
-    if (!saved || !saved.w || !saved.h) return Promise.resolve();
+    // Only where he left it, never how big: it opens at its normal size every
+    // time (his call, 2026-09-25). Found live: a fullscreen session was saved as
+    // the size, so every launch after came up filling the screen.
+    if (!saved || typeof saved.x !== 'number') return Promise.resolve();
     // A monitor he has since unplugged would put the window somewhere he
     // cannot reach, so anything off the current screen is ignored.
     var onScreen = saved.x > -200 && saved.y > -50
       && saved.x < (window.screen.width || 4000)
       && saved.y < (window.screen.height || 3000);
-    var move = onScreen
-      ? win.setPosition(new tauri.PhysicalPosition(saved.x, saved.y))
-      : Promise.resolve();
-    return win.setSize(new tauri.PhysicalSize(saved.w, saved.h))
-      .then(function () { return move; })
-      .catch(function () {});
+    if (!onScreen) return Promise.resolve();
+    return win.setPosition(new tauri.PhysicalPosition(saved.x, saved.y)).catch(function () {});
   }
 
   window.addEventListener('resize', remember);
