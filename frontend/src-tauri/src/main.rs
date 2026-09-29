@@ -17,7 +17,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_autostart::ManagerExt;
 
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, Command};
@@ -81,6 +81,31 @@ fn spawn_core(repo: &Path) -> std::io::Result<Child> {
     command.spawn()
 }
 
+enum Listener {
+    Nobody,
+    Clio,
+    Other,
+}
+
+/// Clio's core is a WebSocket server, and one asked a plain HTTP question
+/// answers "Failed to open a WebSocket connection". Anything else on the port
+/// is not her.
+fn who_is_on_8765() -> Listener {
+    let address = "127.0.0.1:8765".parse().expect("a fixed address");
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_secs(1)) else {
+        return Listener::Nobody;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+    let mut reply = [0u8; 512];
+    let read = stream.read(&mut reply).unwrap_or(0);
+    if String::from_utf8_lossy(&reply[..read]).contains("WebSocket") {
+        Listener::Clio
+    } else {
+        Listener::Other
+    }
+}
+
 struct Core {
     child: Mutex<Option<Child>>,
     quitting: AtomicBool,
@@ -92,14 +117,33 @@ struct Core {
 /// should not be restarted forever.
 fn supervise(core: Arc<Core>) {
     let Some(repo) = repo() else { return };
+    note(repo, "shell started, watching the core");
     let mut quick_failures: u64 = 0;
+    let mut said_taken = false;
     loop {
         if core.quitting.load(Ordering::SeqCst) {
             return;
         }
-        if TcpStream::connect("127.0.0.1:8765").is_ok() {
-            thread::sleep(Duration::from_secs(5));
-            continue;
+        // Found live, 2026-09-29: after a boot the shell wrote nothing at all -
+        // not a start, not a failure - so it had decided a core was already
+        // running. The only way to get there was something answering on 8765.
+        // Now it checks that the something is Clio, and says so if not.
+        match who_is_on_8765() {
+            Listener::Nobody => {}
+            Listener::Clio => {
+                said_taken = false;
+                thread::sleep(Duration::from_secs(30));
+                continue;
+            }
+            Listener::Other => {
+                if !said_taken {
+                    note(repo, "port 8765 is held by something that isn't Clio, so she can't \
+                                start. `netstat -ano | findstr 8765` names it. Waiting for it to go");
+                    said_taken = true;
+                }
+                thread::sleep(Duration::from_secs(10));
+                continue;
+            }
         }
         match spawn_core(repo) {
             Ok(child) => {
