@@ -7,6 +7,7 @@ barge-in) work with whole-turn audio from TurnDetector, not raw frames.
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -59,12 +60,87 @@ class VoiceActivityDetector:
 _STALL_S = 3.0
 
 
+# Opening a stream normally takes well under a second. Found live, 2026-09-30:
+# after a boot, the Windows Audio service had stopped answering, and opening
+# the mic never returned - on the event loop, so the wake word, the hotkey and
+# the chat window all froze with nothing in the log. Now the open runs on its
+# own thread: past _OPEN_S she says so and carries on; a fresh attempt every
+# _RETRY_S, since a restarted audio service answers new calls, not stuck ones.
+_OPEN_S = 10.0
+_RETRY_S = 60.0
+# ponytail: each stuck attempt keeps its thread until Windows lets go of it;
+# capped so a service that never recovers can't pile them up.
+_MAX_STUCK = 5
+_STUCK_SAID = ("My microphone isn't answering - Windows' audio service looks stuck. "
+               "Restarting Windows Audio, or the PC, usually fixes it. I'll keep trying.")
+
+
 class AudioCapture:
     """Mic capture as an async stream of FRAME_SAMPLES float32 frames at SAMPLE_RATE.
     Reopens the stream if it stops delivering, so a driver hiccup heals itself."""
 
-    def __init__(self, device: int | str | None = None):
+    def __init__(self, device: int | str | None = None, bus=None):
         self._device = device
+        self._bus = bus
+
+    async def _tell(self, text: str) -> None:
+        """Into the HUD and chat window, since nothing can be said out loud
+        without the audio service either."""
+        if self._bus is not None:
+            await self._bus.publish("clio.transcript", {"role": "assistant", "text": text},
+                                    source="clio.audio")
+
+    async def _open(self, sd, callback):
+        """A started stream, however long Windows takes to give one."""
+        loop = asyncio.get_running_loop()
+        stuck = 0
+        said = False
+        while True:
+            opened: asyncio.Future = loop.create_future()
+
+            def attempt(opened=opened):
+                try:
+                    stream = sd.InputStream(
+                        samplerate=SAMPLE_RATE, blocksize=FRAME_SAMPLES, channels=1,
+                        dtype="float32", device=self._device, callback=callback)
+                    stream.start()
+                except Exception as exc:
+                    loop.call_soon_threadsafe(
+                        lambda: opened.done() or opened.set_exception(exc))
+                    return
+                # Too late to be used: close it rather than leak an open mic.
+                loop.call_soon_threadsafe(
+                    lambda: stream.close() if opened.done() else opened.set_result(stream))
+
+            threading.Thread(target=attempt, name="mic-open", daemon=True).start()
+            try:
+                stream = await asyncio.wait_for(asyncio.shield(opened), timeout=_OPEN_S)
+            except asyncio.TimeoutError:
+                stuck += 1
+                log.error("Microphone didn't open", extra={"extra_fields": {
+                    "device": self._device, "waited_s": _OPEN_S, "stuck_attempts": stuck}})
+                if not said:
+                    await self._tell(_STUCK_SAID)
+                    said = True
+                opened.cancel()
+                if stuck >= _MAX_STUCK:
+                    # No more threads: wait for Windows to let one of them go.
+                    log.error("Microphone still stuck, not trying again until restart")
+                    await asyncio.Event().wait()
+                await asyncio.sleep(_RETRY_S)
+                continue
+            except Exception:
+                log.exception("Microphone failed to open", extra={"extra_fields": {
+                    "device": self._device}})
+                if not said:
+                    await self._tell(_STUCK_SAID)
+                    said = True
+                await asyncio.sleep(_RETRY_S)
+                continue
+            if said:
+                log.info("Microphone is back")
+                await self._tell("My microphone is working again.")
+            return stream
 
     async def frames(self) -> AsyncIterator[np.ndarray]:
         import sounddevice as sd
@@ -78,15 +154,7 @@ class AudioCapture:
             loop.call_soon_threadsafe(queue.put_nowait, indata[:, 0].copy())
 
         while True:
-            stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                blocksize=FRAME_SAMPLES,
-                channels=1,
-                dtype="float32",
-                device=self._device,
-                callback=_callback,
-            )
-            stream.start()
+            stream = await self._open(sd, _callback)
             try:
                 while True:
                     try:

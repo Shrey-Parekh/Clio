@@ -95,7 +95,7 @@ async def _run(config) -> int:
         server = None
 
     try:
-        capture = AudioCapture(device=config.audio.input_device_arg())
+        capture = AudioCapture(device=config.audio.input_device_arg(), bus=bus)
         run_task = asyncio.ensure_future(orchestrator.run(capture))
         while running and not run_task.done():
             await asyncio.sleep(0.2)

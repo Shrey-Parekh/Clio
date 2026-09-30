@@ -186,11 +186,22 @@ fn supervise(core: Arc<Core>) {
 }
 
 fn main() {
+    // Found live, 2026-09-30: at login the window's webview was touched, yet the
+    // shell left no note at all - it had died before its watcher wrote a line.
+    // So the first thing it does, before any window exists, is say it started,
+    // and anything that kills it is written down instead of vanishing with a
+    // console-less process.
+    if let Some(repo) = repo() {
+        note(repo, &format!("shell starting, pid {}", std::process::id()));
+        std::panic::set_hook(Box::new(move |info| {
+            note(repo, &format!("the shell crashed: {info}"));
+        }));
+    }
     let core = Arc::new(Core { child: Mutex::new(None), quitting: AtomicBool::new(false) });
     let watched = Arc::clone(&core);
     thread::spawn(move || supervise(watched));
 
-    tauri::Builder::default()
+    let outcome = tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .manage(core)
         .setup(|app| {
@@ -230,7 +241,10 @@ fn main() {
                 ],
             )?;
 
-            TrayIconBuilder::with_id("clio-tray")
+            // At login the taskbar may not exist yet. A tray that fails must not
+            // take the rest of Clio down with it: the `?` that was here ended
+            // setup, and the app, over a missing icon.
+            let tray = TrayIconBuilder::with_id("clio-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Clio")
                 .menu(&menu)
@@ -273,10 +287,15 @@ fn main() {
                         show_window(tray.app_handle(), "main");
                     }
                 })
-                .build(app)?;
+                .build(app);
+            if let (Err(err), Some(repo)) = (tray, repo()) {
+                note(repo, &format!("no tray icon this time: {err}"));
+            }
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Clio");
+        .run(tauri::generate_context!());
+    if let (Err(err), Some(repo)) = (outcome, repo()) {
+        note(repo, &format!("the shell stopped with an error: {err}"));
+    }
 }
