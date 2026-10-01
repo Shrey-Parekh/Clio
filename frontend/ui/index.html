@@ -106,6 +106,14 @@
   .controls button[data-win="close"]:hover { color:#E8836A; background:#231413; }
   .controls button[aria-pressed="true"] { color:var(--mint); }
   .controls svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.4; }
+  /* The way to the chat window was an unlabelled 11px icon, and he could not
+     find it. A word, in the accent colour, where the eye already goes. */
+  .controls button.chat {
+    width:auto; height:20px; padding:0 9px; margin-right:6px;
+    font:600 9px/1 var(--chrome); letter-spacing:.16em; color:var(--mint);
+    border:1px solid #1F4A3F; border-radius:3px;
+  }
+  .controls button.chat:hover { color:#0E1014; background:var(--mint); border-color:var(--mint); }
 
   /* Invisible strips over the edges; window.js turns a press into a resize. */
   .win-grip { background:transparent; }
@@ -146,9 +154,7 @@
     </div>
     <div id="link" class="chrome" data-tauri-drag-region>connecting…</div>
     <div class="controls">
-      <button data-win="chat" title="Chat &amp; settings" aria-label="Open chat and settings">
-        <svg viewBox="0 0 12 12"><path d="M2 2.5h8v5.5H6L3.5 10V8H2z"/></svg>
-      </button>
+      <button data-win="chat" class="chat" title="Open chat &amp; settings">CHAT</button>
       <button data-win="pin" title="Always on top" aria-pressed="true" aria-label="Always on top">
         <svg viewBox="0 0 12 12"><path d="M6 1.5v9M2.5 5h7"/></svg>
       </button>
