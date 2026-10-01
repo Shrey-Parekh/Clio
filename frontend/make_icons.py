@@ -9,6 +9,8 @@ at 16 to 48 pixels the word CLIO and the fine arcs turn to mush. His choice,
 Run from the repo root:  .venv/Scripts/python.exe frontend/make_icons.py
 """
 
+import io
+import struct
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -70,6 +72,34 @@ def mark(size: int) -> Image.Image:
     return art.resize((size, size), Image.LANCZOS)
 
 
+def write_ico(path: Path, by_size: dict[int, Image.Image]) -> None:
+    """An .ico with the 32 px image first, written by hand so the order holds.
+
+    Found live, 2026-10-01: the icon looked pixelated. Windows picks the best
+    size from an .ico whatever the order, but Tauri does not - for the window,
+    taskbar and tray it takes the *first* image in the file (tauri-codegen,
+    image.rs: `icon_dir.entries()[0]`). Pillow writes smallest first, so Tauri
+    was handed the 16 px image and Windows stretched it to twice its size.
+    32 px is what the taskbar asks for at 100% scaling, and what Tauri's own
+    icon tool puts first.
+    """
+    order = [32] + [n for n in sorted(by_size) if n != 32]
+    blobs = []
+    for n in order:
+        buffer = io.BytesIO()
+        by_size[n].save(buffer, format="PNG")
+        blobs.append(buffer.getvalue())
+    header = struct.pack("<HHH", 0, 1, len(order))
+    offset = len(header) + 16 * len(order)
+    entries = b""
+    for n, blob in zip(order, blobs):
+        entries += struct.pack("<BBBBHHII", n % 256, n % 256, 0, 0, 1, 32, len(blob), offset)
+        offset += len(blob)
+    path.write_bytes(header + entries + b"".join(blobs))
+    first = struct.unpack("<B", path.read_bytes()[6:7])[0]
+    assert first == 32, f"Tauri takes the first image; it must be 32 px, not {first}"
+
+
 def main() -> None:
     by_size = {n: mark(n) for n in SMALL} | {n: tile(n) for n in LARGE}
     by_size[32].save(ICONS / "32x32.png")
@@ -77,10 +107,7 @@ def main() -> None:
     tile(256).save(ICONS / "128x128@2x.png")
     tile(512).save(ICONS / "512x512.png")
     tile(512).save(ICONS / "icon.png")
-    # Windows picks the nearest size from the .ico, so each one is its own image.
-    sizes = sorted(by_size)
-    by_size[256].save(ICONS / "icon.ico", format="ICO", sizes=[(n, n) for n in sizes],
-                      append_images=[by_size[n] for n in sizes if n != 256])
+    write_ico(ICONS / "icon.ico", by_size)
     # Found live: the next build kept the old icon inside clio.exe. Cargo only
     # re-runs the step that embeds it when build.rs changes, not when the .ico
     # does - so new icons on disk, the placeholder still in the app.
