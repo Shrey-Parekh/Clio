@@ -81,6 +81,10 @@ def main() -> None:
     sizes = sorted(by_size)
     by_size[256].save(ICONS / "icon.ico", format="ICO", sizes=[(n, n) for n in sizes],
                       append_images=[by_size[n] for n in sizes if n != 256])
+    # Found live: the next build kept the old icon inside clio.exe. Cargo only
+    # re-runs the step that embeds it when build.rs changes, not when the .ico
+    # does - so new icons on disk, the placeholder still in the app.
+    (ICONS.parent / "build.rs").touch()
     print("wrote", ", ".join(p.name for p in sorted(ICONS.glob("*")) if p.suffix in (".png", ".ico")))
 
 
