@@ -6,10 +6,10 @@
   if (customElements.get('clio-lattice')) return;
 
   var ACCENT = {
-    standby:   [0xC8, 0xC3, 0xB9],
-    listening: [0xF6, 0xF1, 0xE7],
+    standby:   [0xB9, 0xC6, 0xCB],
+    listening: [0xE7, 0xF1, 0xF6],
     thinking:  [0x9F, 0xB4, 0xBC],
-    speaking:  [0xF0, 0xA8, 0x3C],
+    speaking:  [0x9B, 0xE0, 0xCA],
     muted:     [0xB4, 0x6A, 0x52],
     offline:   [0x8A, 0x90, 0x98]
   };
@@ -215,11 +215,11 @@
       /* ── core glow (blooms on a wake flash) ─────── */
       var flash = this._flash * this._flash;   // ease-in decay
       var glowR = base * (0.9 + flash * 0.55);
-      // molten ember: the core burns hotter (toward #ff7818) as speaking dominates
+      // the core brightens toward a pale mint (#d2fff0) as speaking dominates
       var hot = w.speaking * 0.55;
-      var ember = Math.round(cr + (255 - cr) * hot) + ',' +
-                  Math.round(cg + (120 - cg) * hot) + ',' +
-                  Math.round(cb + (24 - cb) * hot);
+      var ember = Math.round(cr + (210 - cr) * hot) + ',' +
+                  Math.round(cg + (255 - cg) * hot) + ',' +
+                  Math.round(cb + (240 - cb) * hot);
       var glow = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(glowR, 6));
       glow.addColorStop(0, 'rgba(' + ember + ',' + (0.20 * ink + lvl * 0.12 + flash * 0.55).toFixed(3) + ')');
       glow.addColorStop(0.45, 'rgba(' + rgb + ',' + (0.05 * ink + flash * 0.18).toFixed(3) + ')');

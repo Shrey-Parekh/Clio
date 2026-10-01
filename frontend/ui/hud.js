@@ -1,9 +1,9 @@
 (function () {
   var STATES = {
-    standby:   { word:'Standby',   color:'#EDE8DE', note:'Wake word armed',        meter:'18%' },
-    listening: { word:'Listening', color:'#EDE8DE', note:'Recording · local only', meter:'100%' },
+    standby:   { word:'Standby',   color:'#E3EEF3', note:'Wake word armed',        meter:'18%' },
+    listening: { word:'Listening', color:'#E3EEF3', note:'Recording · local only', meter:'100%' },
     thinking:  { word:'Thinking',  color:'#9FB4BC', note:'Working it out',         meter:'62%' },
-    speaking:  { word:'Speaking',  color:'#F0A83C', note:'Answering aloud',        meter:'84%' },
+    speaking:  { word:'Speaking',  color:'#9BE0CA', note:'Answering aloud',        meter:'84%' },
     muted:     { word:'Muted',     color:'#A85A44', note:'Microphone off',         meter:'0%' },
     offline:   { word:'No core',   color:'#6B7078', note:'Reconnecting to 8765',   meter:'0%' }
   };
@@ -34,14 +34,21 @@
     elMeter.style.width = s.meter;
     elMeter.style.background = s.color;
     lattice.setAttribute('state', connected ? name : 'offline');
-    elDot.style.background = !connected ? '#3A3F46' : (name === 'muted' ? '#A85A44' : '#F0A83C');
+    elDot.style.background = !connected ? '#3A3F46' : (name === 'muted' ? '#A85A44' : '#9BE0CA');
     elLink.textContent = connected ? '127.0.0.1:8765' : 'not connected';
     elMic.textContent = name === 'muted' ? 'MIC OFF' : (micQuiet ? 'MIC TOO QUIET' : 'MIC LIVE');
     elMic.style.color = (name === 'muted' || micQuiet) ? '#A85A44' : '#464B52';
   }
 
   var bus = new ClioBus('ws://127.0.0.1:8765');
-  bus.on('open', function () { connected = true; render(current); });
+  // Connected means there is a core. The state only changes when she announces
+  // one, and an idle core announces nothing - so a HUD that connected to a core
+  // already waiting for the wake word sat on "No core" beside a live address.
+  bus.on('open', function () {
+    connected = true;
+    if (current === 'offline') current = 'standby';
+    render(current);
+  });
   bus.on('close', function () { connected = false; render('offline'); });
   bus.on('clio.state', function (p) {
     current = p.state === 'idle' ? 'standby' : (p.state || 'standby');

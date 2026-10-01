@@ -7,8 +7,8 @@
 <style>
   :root {
     --ink:#05060A; --slab:#0E1014; --rule:#14171C;
-    --bone:#EDE8DE; --ash:#7B7F86; --dim:#4E535A;
-    --sodium:#F0A83C; --rust:#A85A44; --cool:#9FB4BC;
+    --bone:#E3EEF3; --ash:#7B7F86; --dim:#4E535A;
+    --mint:#9BE0CA; --rust:#A85A44; --cool:#9FB4BC;
     --chrome:Bahnschrift,'Segoe UI Variable Small','Segoe UI',system-ui,sans-serif;
     --speech:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
   }
@@ -46,13 +46,13 @@
   .turn .txt { flex:1; min-width:0; font:400 12.5px/1.45 var(--speech); overflow:hidden;
                display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; user-select:text; }
   #you .tag { color:var(--dim); } #you .txt { color:#8B9099; }
-  #clio .tag { color:#8A6528; } #clio .txt { color:#E0A44A; font-size:13px; -webkit-line-clamp:3; }
+  #clio .tag { color:#3F7A69; } #clio .txt { color:#A9DCCD; font-size:13px; -webkit-line-clamp:3; }
 
   footer { flex:none; height:30px; padding:0 18px; display:flex; align-items:center;
            justify-content:space-between; border-top:1px solid var(--rule); background:#090A0D; }
   footer div { font:400 8.5px/1 var(--chrome); letter-spacing:.2em; color:#464B52; }
   #mic { color:#464B52; }
-  :focus-visible { outline:1px solid var(--sodium); outline-offset:2px; }
+  :focus-visible { outline:1px solid var(--mint); outline-offset:2px; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 
   /* --- window controls, since there is no title bar --- */
@@ -64,7 +64,7 @@
   }
   .controls button:hover { color:var(--bone); background:#171A20; }
   .controls button[data-win="close"]:hover { color:#E8836A; background:#231413; }
-  .controls button[aria-pressed="true"] { color:var(--sodium); }
+  .controls button[aria-pressed="true"] { color:var(--mint); }
   .controls svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.4; }
 
   /* Invisible strips over the edges; window.js turns a press into a resize. */
@@ -104,7 +104,7 @@
   }
   .controls button:hover { color:var(--bone); background:#171A20; }
   .controls button[data-win="close"]:hover { color:#E8836A; background:#231413; }
-  .controls button[aria-pressed="true"] { color:var(--sodium); }
+  .controls button[aria-pressed="true"] { color:var(--mint); }
   .controls svg { width:11px; height:11px; fill:none; stroke:currentColor; stroke-width:1.4; }
 
   /* Invisible strips over the edges; window.js turns a press into a resize. */

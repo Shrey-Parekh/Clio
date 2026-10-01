@@ -49,8 +49,11 @@ a server nobody started ("can't reach this page", then a port number). A debug
 build now clears the entry instead, which also repairs a machine that has the
 bad path registered.
 
-The placeholder icon in `src-tauri/icons/` is a solid colour; replace it with a
-real icon set via `npm run tauri icon path/to/icon.png`.
+The icons in `src-tauri/icons/` are built from `source.webp` by `make_icons.py`:
+the picture itself at 64 px and up, and a simplified ring-and-reticle mark at
+16 to 48 px, where the wordmark would smear. To change the icon, replace
+`source.webp` and run `.venv/Scripts/python.exe frontend/make_icons.py` from the
+repo root, then rebuild.
 
 ## Scope
 

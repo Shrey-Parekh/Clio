@@ -17,7 +17,7 @@
 
   function setLink(on) {
     connected = on;
-    $('#dot').style.background = on ? '#F0A83C' : '#3A3F46';
+    $('#dot').style.background = on ? '#9BE0CA' : '#3A3F46';
     $('#linkTxt').textContent = on ? '127.0.0.1:8765' : 'not connected';
     [ '#sendBtn', '#addBtn', '#muteBtn', '#speed' ].forEach(function (s) { $(s).disabled = !on; });
   }

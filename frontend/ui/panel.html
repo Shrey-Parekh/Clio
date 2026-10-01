@@ -7,8 +7,8 @@
 <style>
   :root {
     --ink:#0A0B0E; --slab:#0E1014; --rule:#14171C; --hair:#101318;
-    --bone:#EDE8DE; --text:#C9C4BA; --ash:#8B9099; --dim:#4E535A;
-    --sodium:#F0A83C; --rust:#A85A44;
+    --bone:#E3EEF3; --text:#BECBD1; --ash:#8B9099; --dim:#4E535A;
+    --mint:#9BE0CA; --rust:#A85A44;
     --chrome:Bahnschrift,'Segoe UI Variable Small','Segoe UI',system-ui,sans-serif;
     --speech:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
   }
@@ -31,7 +31,7 @@
   nav button { appearance:none; background:none; border:0; padding:0 0 11px; cursor:pointer;
     font:500 9.5px/1 var(--chrome); letter-spacing:.24em; text-transform:uppercase;
     color:#5B6068; border-bottom:1.5px solid transparent; }
-  nav button[aria-selected="true"] { color:var(--bone); border-bottom-color:var(--sodium); }
+  nav button[aria-selected="true"] { color:var(--bone); border-bottom-color:var(--mint); }
 
   main { flex:1; min-height:0; display:flex; flex-direction:column; }
   .pane { flex:1; min-height:0; display:none; flex-direction:column; }
@@ -45,8 +45,8 @@
   .turn .tag { flex:none; width:34px; font:400 8.5px/1.5 var(--chrome); letter-spacing:.22em; color:var(--dim); }
   .turn .txt { flex:1; min-width:0; font:400 13.5px/1.55 var(--speech); color:var(--ash);
                text-wrap:pretty; overflow-wrap:anywhere; }
-  .turn.assistant .tag { color:#8A6528; }
-  .turn.assistant .txt { color:#E0A44A; }
+  .turn.assistant .tag { color:#3F7A69; }
+  .turn.assistant .txt { color:#A9DCCD; }
   .empty { padding:40px 18px; font:400 13px/1.6 var(--speech); color:var(--dim); }
 
   .composer { flex:none; padding:12px 18px 16px; border-top:1px solid var(--rule); display:flex; gap:10px; align-items:center; }
@@ -57,7 +57,7 @@
   .btn { appearance:none; flex:none; background:#14171C; border:1px solid #232830; border-radius:5px;
     padding:9px 15px; cursor:pointer; color:var(--text); font:500 9px/1.3 var(--chrome);
     letter-spacing:.22em; text-transform:uppercase; }
-  .btn:hover { border-color:var(--sodium); color:var(--sodium); }
+  .btn:hover { border-color:var(--mint); color:var(--mint); }
   .btn[disabled] { opacity:.4; cursor:default; }
   .btn[disabled]:hover { border-color:#232830; color:var(--text); }
 
@@ -71,15 +71,15 @@
   hr { border:0; height:1px; background:var(--rule); margin:22px 0; }
   .row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
   #speedVal { font:500 13px/1 var(--chrome); letter-spacing:.06em; color:var(--bone); }
-  input[type=range] { width:100%; margin-top:12px; accent-color:var(--sodium); background:transparent; }
+  input[type=range] { width:100%; margin-top:12px; accent-color:var(--mint); background:transparent; }
   #caps { display:flex; flex-direction:column; }
   .cap { display:flex; align-items:center; gap:12px; padding:9px 0; border-top:1px solid var(--hair); }
   .cap .nm { flex:1; min-width:0; font:400 13px/1.3 var(--speech); color:var(--text); overflow-wrap:anywhere; }
   .cap .net { flex:none; width:52px; text-align:right; font:400 8.5px/1 var(--chrome); letter-spacing:.18em; text-transform:uppercase; color:var(--dim); }
-  .cap .net.on { color:var(--sodium); }
+  .cap .net.on { color:var(--mint); }
   .tier { flex:none; width:66px; text-align:center; border:1px solid #2A3038; border-radius:3px; padding:4px 0;
     font:500 8.5px/1 var(--chrome); letter-spacing:.18em; text-transform:uppercase; color:#B7BCC4; }
-  .tier.confirm { color:var(--sodium); border-color:#4A3617; }
+  .tier.confirm { color:var(--mint); border-color:#1F4A3F; }
   .tier.blocked { color:var(--rust); border-color:#3A2019; }
 
   #memHead { flex:none; padding:18px 18px 10px; }
@@ -88,7 +88,7 @@
   .fact .n { flex:none; width:20px; font:400 9px/1.6 var(--chrome); letter-spacing:.1em; color:#3E434A; }
   .fact .t { flex:1; min-width:0; font:400 13.5px/1.55 var(--speech); color:var(--text); text-wrap:pretty; overflow-wrap:anywhere; }
 
-  :focus-visible { outline:1px solid var(--sodium); outline-offset:2px; }
+  :focus-visible { outline:1px solid var(--mint); outline-offset:2px; }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 
   /* --- window controls, since there is no title bar --- */
