@@ -65,6 +65,14 @@ _PENDING_CONFIRM_S = 60.0
 _PLAN_BUDGET_S = 15 * 60.0
 _COUNTS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 
+# How long she waits for him to start speaking after a wake, before saying she
+# heard nothing. Long enough to gather a thought; not the forever it used to be.
+_FIRST_TURN_S = 12.0
+# Loudest sample below this while he was meant to be speaking means the mic is
+# too quiet, not that he said nothing. Measured: speech through his USB mic at
+# 27% peaked near 0.01; a healthy level is 0.1 and up.
+_QUIET_PEAK = 0.05
+
 # How often to prove the microphone is still delivering while nothing matches.
 _WAKE_HEARTBEAT_S = 15.0
 
@@ -513,13 +521,17 @@ class Orchestrator:
 
     async def _conversation_loop(self) -> None:
         await self._speak_pending_announcements()
-        turn_audio = await self._turn_detector.listen_for_turn(self._frames)
+        turn_audio = await self._listen_silently(_FIRST_TURN_S)
+        if turn_audio is None:
+            await self._heard_nothing()
+            return
         used_llm = False
 
         while turn_audio.size > 0:
             text = await self._transcribe(turn_audio)
             if not text:
                 break
+            await self._emit("clio.mic", {"quiet": False})
 
             heard_at = time.monotonic()
             log.info(
@@ -591,16 +603,41 @@ class Orchestrator:
             # would stop the mic being read meanwhile. It only writes to memory.
             self._consolidating = asyncio.ensure_future(self._consolidate_memory())
 
-    async def _listen_silently(self) -> np.ndarray | None:
+    async def _heard_nothing(self) -> None:
+        """She woke and no speech arrived. Found live, 2026-10-01: his mic was
+        at 27% in Windows, so audio flowed and nothing in it was loud enough to
+        count as speech. She waited without limit, said nothing, and the HUD
+        said MIC LIVE. Now the wait ends and she says which it was - in the
+        window too, since a broken audio setup may mean he can't hear her."""
+        peak = float(getattr(self._turn_detector, "last_peak", 0.0) or 0.0)
+        quiet = peak < _QUIET_PEAK
+        log.warning("Woke but heard no speech", extra={"extra_fields": {
+            "waited_s": _FIRST_TURN_S, "peak": round(peak, 4), "mic_too_quiet": quiet}})
+        text = (
+            "I can't hear you - your microphone is very quiet. Turn its volume up in "
+            "Windows sound settings, under Input."
+            if quiet else "I didn't catch anything."
+        )
+        if quiet:
+            await self._emit("clio.mic", {"quiet": True})
+        await self._emit("clio.transcript", {"role": "assistant", "text": text})
+        try:
+            await self._speaker.speak(text, self._frames, listen_after_s=0.0)
+        except Exception as exc:
+            await report_error(self._bus, exc, context="heard nothing", source="clio.orchestrator")
+
+    async def _listen_silently(self, timeout_s: float | None = None) -> np.ndarray | None:
         """The stop-command counterpart to ConversationSession's follow-up
-        window: listens for up to follow_up_window_s more without speaking
-        anything first. Uses TurnDetector directly rather than BargeInSpeaker,
-        since there is no speech in flight to race against or cancel.
+        window: listens for up to follow_up_window_s more (or timeout_s)
+        without speaking anything first. Uses TurnDetector directly rather than
+        BargeInSpeaker, since there is no speech in flight to race against or
+        cancel.
         """
         stop = asyncio.Event()
         onset_task = asyncio.ensure_future(self._turn_detector.wait_for_onset(self._frames, stop=stop))
         try:
-            onset_frames = await asyncio.wait_for(asyncio.shield(onset_task), timeout=self._follow_up_window_s)
+            onset_frames = await asyncio.wait_for(
+                asyncio.shield(onset_task), timeout=timeout_s or self._follow_up_window_s)
         except asyncio.TimeoutError:
             stop.set()
             onset_frames = await onset_task

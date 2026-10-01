@@ -91,6 +91,14 @@
     // Closing the HUD hides it rather than quitting: the tray icon is where
     // Clio actually lives, and quitting by accident stops her listening.
     close: function () { return win.hide(); },
+    // The chat window starts hidden, and the tray menu was the only way to it.
+    // He looked for a chat area and found none, so the HUD opens it too.
+    chat: function () {
+      return tauri.Window.getByLabel('panel').then(function (panel) {
+        if (!panel) return;
+        return panel.show().then(function () { return panel.setFocus(); });
+      });
+    },
     pin: function () {
       pinned = !pinned;
       return win.setAlwaysOnTop(pinned).then(paint);

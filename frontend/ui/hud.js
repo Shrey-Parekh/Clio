@@ -19,6 +19,9 @@
   var elClio  = document.querySelector('#clio .txt');
 
   var connected = false, current = 'offline';
+  // "MIC LIVE" used to mean only "not muted". It stayed lit while his mic was
+  // too quiet for her to hear a word. The core now says when that happens.
+  var micQuiet = false;
 
   function render(name) {
     var s = STATES[connected ? name : 'offline'] || STATES.standby;
@@ -33,8 +36,8 @@
     lattice.setAttribute('state', connected ? name : 'offline');
     elDot.style.background = !connected ? '#3A3F46' : (name === 'muted' ? '#A85A44' : '#F0A83C');
     elLink.textContent = connected ? '127.0.0.1:8765' : 'not connected';
-    elMic.textContent = name === 'muted' ? 'MIC OFF' : 'MIC LIVE';
-    elMic.style.color = name === 'muted' ? '#A85A44' : '#464B52';
+    elMic.textContent = name === 'muted' ? 'MIC OFF' : (micQuiet ? 'MIC TOO QUIET' : 'MIC LIVE');
+    elMic.style.color = (name === 'muted' || micQuiet) ? '#A85A44' : '#464B52';
   }
 
   var bus = new ClioBus('ws://127.0.0.1:8765');
@@ -45,6 +48,7 @@
     render(current);
   });
   bus.on('clio.wake', function () { if (lattice.pulse) lattice.pulse(); });
+  bus.on('clio.mic', function (p) { micQuiet = !!(p && p.quiet); render(current); });
   bus.on('clio.transcript', function (p) {
     if (!p || !p.text) return;
     (p.role === 'assistant' ? elClio : elYou).textContent = p.text;

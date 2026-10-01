@@ -201,6 +201,10 @@ class TurnDetector:
         cancelling this coroutine (which would close the shared frame generator
         for every later reader). Resets VAD state."""
         self._vad.reset()
+        # How loud the loudest thing was while waiting. When nothing counted as
+        # speech, this is what tells "nobody spoke" from "the mic is too quiet
+        # to hear him" - which looked identical until it was measured.
+        self.last_peak = 0.0
 
         pending: list[np.ndarray] = []
         speech_run = 0
@@ -209,6 +213,7 @@ class TurnDetector:
             if stop is not None and stop.is_set():
                 return None
 
+            self.last_peak = max(self.last_peak, float(np.abs(frame).max()))
             prob = self._vad.process(frame)
             is_speech = prob >= self._threshold
 
