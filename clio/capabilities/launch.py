@@ -90,8 +90,40 @@ def _best_app(query: str, apps: dict[str, str]) -> str | None:
     contained = sorted((n for n in names if query in n), key=len)
     if contained:
         return contained[0]
-    close = difflib.get_close_matches(query, names, n=1, cutoff=_MATCH_CUTOFF)
-    return close[0] if close else None
+    # And the other way round. Found live, 2026-10-02: "open Microsoft Word"
+    # opened Microsoft Edge. Word is installed as plain "word", which is not
+    # found by looking for his words inside app names. An app whose whole name
+    # appears in what he said is the app; longest wins, so "visual studio code"
+    # beats "code".
+    words = query.split()
+    inside = sorted(
+        (n for n in names if len(n) >= 3 and _contains_words(words, n.split())),
+        key=len, reverse=True)
+    if inside:
+        return inside[0]
+    for name in difflib.get_close_matches(query, names, n=3, cutoff=_MATCH_CUTOFF):
+        if not _only_shares_a_prefix(words, name.split()):
+            return name
+    return None
+
+
+def _contains_words(words: list[str], name: list[str]) -> bool:
+    """Whether `name` appears in `words` as a run of whole words."""
+    return any(words[i:i + len(name)] == name for i in range(len(words) - len(name) + 1))
+
+
+def _only_shares_a_prefix(words: list[str], name: list[str]) -> bool:
+    """"microsoft word" and "microsoft edge" are 71% alike as strings and not
+    alike at all as apps: everything they share is the vendor. A fuzzy match
+    must also be close in the words that differ."""
+    shared = set(words) & set(name)
+    if not shared:
+        return False
+    rest_said = " ".join(w for w in words if w not in shared)
+    rest_name = " ".join(w for w in name if w not in shared)
+    if not rest_said or not rest_name:
+        return False
+    return difflib.SequenceMatcher(None, rest_said, rest_name).ratio() < _MATCH_CUTOFF
 
 
 def resolve(text: str, shortcuts: dict[str, str] | None = None) -> Target | None:

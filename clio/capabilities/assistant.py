@@ -12,8 +12,12 @@ import re
 _STRIP = re.compile(r"[.!?,;:]+$")
 
 _PATTERNS: list[tuple[str, str]] = [
+    # "features" and "what can you open" were added after a real conversation
+    # (2026-10-02) where both went to the model, which made her abilities up.
     ("help", r"what can you do|what are you (?:able|capable)|what can i ask|"
-             r"what commands|list your (?:capabilities|abilities|skills)|"
+             r"what commands|list your (?:capabilities|abilities|skills|features)|"
+             r"(?:about|what are|tell me) your (?:features|capabilities|abilities|skills)|"
+             r"what can you (?:open|run|control|help with)|"
              r"^help$|^what do you do$"),
     ("faster", r"(?:talk|speak|say it) faster|speed up|you'?re (?:too|talking too) slow"),
     ("slower", r"(?:talk|speak|say it) slower|slow down|you'?re (?:too fast|talking too fast)|"
@@ -119,6 +123,25 @@ def describe_capabilities(capabilities) -> str:
     head = ", ".join(phrases[:-1])
     tail = f" And {rest} other things." if rest > 0 else ""
     return f"I can {head}, and {phrases[-1]}.{tail} Nearly all of it without going online."
+
+
+def capability_brief(capabilities) -> str:
+    """What the model is told she can do, appended to the persona.
+
+    Without it the model knows a personality and nothing else. Asked about her
+    features it invented some ("a faster brain"); after a failed launch it said
+    she can't open Word, then that she can open anything. This is the registry
+    said plainly, so its answers about her are the true ones.
+    """
+    registered = sorted({c.name for c in capabilities} - _UNLISTED)
+    things = "; ".join(_DESCRIPTIONS.get(name, name) for name in registered)
+    return (
+        "What you can actually do on his PC, through built-in commands: " + things + ". "
+        "These happen when he asks in plain words; saying you did something does not do it, "
+        "so never claim to have opened, typed, sent or changed anything. When he asks what you "
+        "can do, answer from this list, never from imagination. If he wants something that is "
+        "not on it, say you can't do that yet."
+    )
 
 
 def adjust_speed(speaker, direction: str) -> str:

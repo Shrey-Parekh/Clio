@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 
 from clio.capabilities import rephrase
+from clio.capabilities.assistant import capability_brief
+from clio.capabilities.stop import is_stop_command
 from clio.capabilities.clipboard import Clipboard
 from clio.capabilities.correction import parse_correction
 from clio.capabilities.notes import NoteBook
@@ -248,7 +250,10 @@ class Orchestrator:
         self._memory = ConversationMemory(
             provider=self._llm,
             max_tokens=memory_max_tokens,
-            system_prompt=persona_system_prompt,
+            # The persona, then what she can really do - read from the registry
+            # so it cannot go stale. Without it the model made her features up.
+            system_prompt=(persona_system_prompt + "\n\n"
+                           + capability_brief(self._router.capabilities())),
             bus=bus,
         )
         if self._store is not None and recent_turns_on_start > 0:
@@ -571,6 +576,7 @@ class Orchestrator:
             if not reply:
                 # Stop, or an empty reply (lock/sleep/media): say nothing and keep
                 # listening. Speaking an empty string is still a turn with latency.
+                self._close_silent_turn(text)
                 next_turn = await self._listen_silently()
             else:
                 if not streamed:
@@ -602,6 +608,24 @@ class Orchestrator:
             # Not awaited: it's a Groq call with retries, and awaiting it here
             # would stop the mic being read meanwhile. It only writes to memory.
             self._consolidating = asyncio.ensure_future(self._consolidate_memory())
+
+    def _close_silent_turn(self, text: str) -> None:
+        """After a stop, write down that the stop is finished.
+
+        Found live, 2026-10-02: one "Stop." silenced her for the rest of the
+        conversation. Stopping is answered by saying nothing, which left his
+        "Stop." in the history with no reply after it - and the persona says
+        that when he says stop she says nothing. Every later turn the model
+        re-read that and stayed silent: three empty replies in a row, and the
+        same three times when replayed. Kept in the long-term record too,
+        because the next session is seeded from the last few turns.
+        """
+        if not is_stop_command(text):
+            return
+        note = ("[you went quiet, as he asked. That request is finished - "
+                "answer whatever he says next as normal]")
+        self._memory.add_assistant(note)
+        self._record(role="assistant", content=note)
 
     async def _heard_nothing(self) -> None:
         """She woke and no speech arrived. Found live, 2026-10-01: his mic was
