@@ -121,7 +121,7 @@ for f in tests/test_*.py; do .venv/Scripts/python.exe "$f" 2>&1 | tail -1; done
 | `frontend/` | Tauri shell: HUD, chat & settings window, tray, icons |
 | `config/` | `default.toml` - settings and persona |
 | `tests/` | One script per capability |
-| `docs/` | Wake-word training, and a design spec per larger feature |
+| `docs/` | Wake-word training |
 | `memory/`, `logs/`, `models/` | Runtime data - never committed |
 
 ## Git workflow

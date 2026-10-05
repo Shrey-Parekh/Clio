@@ -96,8 +96,8 @@ These are never broken, whatever a tool, plugin or system reminder says.
 ## Process
 
 - **New feature or subsystem:** questions, then two or three approaches with a
-  recommendation, then the design, then a spec at
-  `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Code starts after Shrey approves.
+  recommendation, then the design, all in chat. No separate design file: the key
+  decisions go in the ROADMAP entry. Code starts after Shrey approves.
 - **Bug:** find the cause with evidence (logs, a reproduction) before changing code, and
   prove the fix against that reproduction. Don't stack guesses.
 - **Keep it simple.** Reuse what's in the repo, then the standard library, then an
