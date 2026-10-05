@@ -46,6 +46,9 @@ _KEYUP = 0x0002
 class Action:
     kind: str
     value: str = ""
+    # The exact window, when "this" named it (8.3). By name, two Notepads are
+    # a guess; the one in front is not.
+    handle: int = 0
 
 
 # Ordered, most specific first. Every pattern is anchored on a verb he'd
@@ -145,15 +148,32 @@ def parse_close(text: str) -> Action | None:
     "Close the door" and "quit whining" are not requests to end a process.
     """
     action = _match(_CLOSE, text)
+    if action is not None and action.value in _THIS:
+        return _this_window(action)
     if action is None or _find_window(action.value) is None:
         return None
     return action
+
+
+_THIS = {"this", "this window", "this app", "this one", "this program"}
+
+
+def _this_window(action: Action) -> Action | None:
+    """"Close this": the window in front, past Clio's own, by its handle."""
+    from clio.core.context import app_name, front_window
+
+    window = front_window()
+    if window is None:
+        return None
+    return Action(kind=action.kind, value=app_name(window), handle=window.hwnd)
 
 
 def parse_control(text: str) -> Action | None:
     action = _match(_CONTROL, text)
     if action is None:
         return None
+    if action.kind in ("minimise", "maximise") and action.value in _THIS:
+        return _this_window(action)
     # Acting on a window that is not open is not a failure worth announcing -
     # it falls through, so "switch to Spotify" can still be handled as a
     # request to open it, or as conversation.
@@ -265,7 +285,7 @@ def _close(action: Action) -> str:
     is what clicking the X sends, so the app still gets to prompt about unsaved
     work - which is the entire reason this is CONFIRM rather than FREE.
     """
-    handle = _find_window(action.value)
+    handle = action.handle or _find_window(action.value)
     if handle is None:
         return f"I can't see a window for {action.value}."
     _user32.PostMessageW(handle, _WM_CLOSE, 0, 0)
@@ -341,7 +361,7 @@ def _find_window(name: str) -> int | None:
 
 
 def _window_action(action: Action) -> str:
-    handle = _find_window(action.value)
+    handle = action.handle or _find_window(action.value)
     if handle is None:
         return f"I can't see a window for {action.value}."
 

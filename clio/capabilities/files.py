@@ -149,7 +149,11 @@ def _spoken_name(path: Path) -> str:
 
 def _by_name(query: str, everything: tuple[Path, ...]) -> tuple[Path, ...]:
     words = query.split()
-    hits = [p for p in everything if all(w in p.stem.lower() for w in words)]
+    # "budget.docx" - typed, or a window title read by 8.3 - names the file
+    # with its extension; against the stem alone it matched nothing.
+    full = "." in query
+    hits = [p for p in everything
+            if all(w in (p.name if full else p.stem).lower() for w in words)]
     # Most recently touched first — usually the one meant.
     hits.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
     return tuple(hits[:20])

@@ -80,11 +80,15 @@ _PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
 _MAX_WALK = 200   # windows below the foreground worth looking through
 
 
-def _exe(hwnd: int) -> str:
+def process_id(hwnd: int) -> int:
     pid = wintypes.DWORD()
     _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _exe(hwnd: int) -> str:
     kernel32 = ctypes.windll.kernel32
-    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, process_id(hwnd))
     if not handle:
         return ""
     try:

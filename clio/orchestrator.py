@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from clio.capabilities import rephrase
+from clio.capabilities import rephrase, this
 from clio.capabilities.assistant import capability_brief
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.clipboard import Clipboard
@@ -32,6 +32,7 @@ from clio.core.config import (
     PROJECT_ROOT, Config, ConfigError, DictationConfig, EmailConfig, HotkeyConfig,
     LocationConfig, MouseConfig, PushToTalkConfig,
 )
+from clio.core import context as front_context
 from clio.core.errors import ERROR_EVENT, describe_error, report_error
 from clio.input.hotkey import HotkeyListener
 from clio.input.keyboard import KeyListener
@@ -867,6 +868,16 @@ class Orchestrator:
         # answered like one - recording it must not swallow the reply.
         self._record_correction(text)
 
+        if this.wants_context(text):
+            resolved = this.resolve(text, await asyncio.to_thread(front_context.snapshot))
+            if resolved is not None:
+                log.info("Resolved 'this'", extra={"extra_fields": {"as": resolved.why}})
+                if resolved.kind == "refuse":
+                    return resolved.text, False
+                if resolved.kind == "ask":
+                    return await self._about_selection(resolved.text), True
+                text = resolved.text
+
         steps = self._router.plan(text)
         self._intent_used_llm = False
         if not steps:
@@ -887,6 +898,18 @@ class Orchestrator:
         # Most intents are free; summarising a file isn't, and that must be
         # reported so the session is accounted for.
         return spoken, self._intent_used_llm
+
+    async def _about_selection(self, request: str) -> str:
+        """8.3: a question about the text he has selected, answered from that
+        text alone - no screenshot, and the selection goes nowhere else."""
+        try:
+            return await self._llm.complete(
+                [{"role": "system", "content": self._persona_system_prompt},
+                 {"role": "user", "content": request}])
+        except Exception as exc:
+            described = await report_error(self._bus, exc, context="selected text",
+                                           source="clio.orchestrator")
+            return described.spoken
 
     async def _reworded(self, text: str) -> Match | None:
         """7.6: nothing matched, but it sounds like an order. The model rewords

@@ -152,7 +152,7 @@ class FileWriter:
             if folder is not None and folder not in self._roots:
                 return folder, ""
             return None, f"I can't find anything called {wanted}."
-        exact = [p for p in matches if p.stem.lower() == wanted]
+        exact = [p for p in matches if wanted in (p.stem.lower(), p.name.lower())]
         if len(exact) == 1:
             return exact[0], ""
         if len(matches) > 1:
