@@ -56,6 +56,12 @@ python-docx==1.2.0
 python-pptx==1.0.2
 openpyxl==3.1.5
 
+# Antivirus that inspects HTTPS (Kaspersky here) re-signs it with a root only
+# Windows trusts; Python's own list rejected it and every Groq call failed.
+# truststore makes Python use Windows' list. pip itself vendors it for the
+# same reason; nothing in the stdlib reads the Windows store for SSL.
+truststore==0.10.4
+
 # Phases 7 and 8 added nothing here: jobs, shell commands and winget are
 # subprocess calls, and screen work is still to come.
 

@@ -4,6 +4,14 @@ import asyncio
 import signal
 import sys
 
+import truststore
+
+# Before anything opens a connection. Python ships its own certificate list, so
+# when antivirus (Kaspersky, on this machine) re-signs HTTPS with a root only
+# Windows trusts, every Groq, Tavily and Gmail call failed while the browser
+# worked. This makes Python check certificates against Windows' list instead.
+truststore.inject_into_ssl()
+
 from clio.core.config import ConfigError, load_config
 from clio.core.errors import describe_error, report_error
 from clio.core.events import Event, EventBus
