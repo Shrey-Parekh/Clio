@@ -50,6 +50,10 @@ class LLMProvider(ABC):
         chunks = [chunk async for chunk in self.stream(messages, tier)]
         return "".join(chunks)
 
+    async def look(self, jpeg: bytes, question: str, system: str) -> str:
+        """Answer `question` about one picture (8.2). Only Groq can see."""
+        raise LLMPermanentError("This model can't look at pictures")
+
 
 class GroqProvider(LLMProvider):
     def __init__(self, config: Config):
@@ -141,6 +145,45 @@ class GroqProvider(LLMProvider):
             if delta:
                 yield delta
 
+    async def look(self, jpeg: bytes, question: str, system: str) -> str:
+        import base64
+
+        import groq
+
+        model = self._config.llm.model_vision
+        client = self._ensure_client()
+        image = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
+
+        def _ask():
+            return client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": question},
+                        {"type": "image_url", "image_url": {"url": image}},
+                    ]},
+                ],
+                max_completion_tokens=_MAX_SPOKEN_TOKENS,
+                timeout=_REQUEST_TIMEOUT_S,
+            )
+
+        try:
+            response = await asyncio.to_thread(_ask)
+        except groq.RateLimitError as exc:
+            raise LLMRateLimited(f"Groq rate limited: {exc}") from exc
+        except (groq.BadRequestError, groq.NotFoundError, groq.PermissionDeniedError,
+                groq.AuthenticationError, groq.UnprocessableEntityError) as exc:
+            raise LLMPermanentError(f"Groq vision request failed: {exc}") from exc
+        except groq.GroqError as exc:
+            raise LLMError(f"Groq vision unreachable: {exc}") from exc
+        reported = response.usage
+        if reported is not None:
+            self.usage.record(Usage(model=model, tier="vision",
+                                    prompt_tokens=reported.prompt_tokens or 0,
+                                    completion_tokens=reported.completion_tokens or 0))
+        return response.choices[0].message.content or ""
+
 
 class OllamaProvider(LLMProvider):
     """Local fallback via Ollama. Reads only message.content, not message.thinking,
@@ -221,6 +264,11 @@ class FallbackLLMProvider(LLMProvider):
         """Whichever model is answering owns the numbers."""
         source = self._fallback if self.using_fallback else self._primary
         return getattr(source, "usage", UsageTracker())
+
+    async def look(self, jpeg: bytes, question: str, system: str) -> str:
+        # No retry and no fallback: the local model can't see, and he is
+        # waiting on a spoken answer, so one clear failure beats a slow one.
+        return await self._primary.look(jpeg, question, system)
 
     async def stream(self, messages: list[Message], tier: str = "default") -> AsyncIterator[str]:
         last_error: Exception | None = None

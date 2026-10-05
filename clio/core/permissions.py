@@ -41,6 +41,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "files": Permission.FREE,     # read-only, confined to configured roots
     "clock": Permission.FREE,
     "chance": Permission.FREE,
+    "screen": Permission.FREE,          # asking is the permission (his choice); never captured unasked
     "stopwatch": Permission.FREE,
     "timer_control": Permission.FREE,
     "network": Permission.FREE,

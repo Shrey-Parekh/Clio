@@ -66,6 +66,7 @@ _DESCRIPTIONS = {
     "web": "look things up and read you the news",
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
+    "screen": "read what's on your screen and explain errors on it",
     "status": "tell you what's still working when something breaks",
     "diagnose": "explain what went wrong",
     "voice": "talk faster or slower",
@@ -79,7 +80,7 @@ _UNLISTED = {"stop", "repeat", "help", "send_blocked", "shell_blocked"}
 # Spoken order (not registration order, which is by match precedence). Only the
 # headline of each group — a spoken answer shouldn't recite a long list.
 _HEADLINE = [
-    "clock", "timer", "notes", "open", "files", "clipboard", "control", "system",
+    "clock", "timer", "notes", "open", "screen", "files", "clipboard", "control", "system",
     "media", "weather", "calculate", "chance",
 ]
 _MAX_SPOKEN = 8

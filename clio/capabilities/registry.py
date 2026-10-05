@@ -31,6 +31,11 @@ from clio.capabilities.remind import (
     MIN_LEAD_S, parse_reminder_control, parse_reminder_request,
 )
 from clio.capabilities.repeat import is_repeat_command
+from clio.capabilities.screen import (
+    SYSTEM as SCREEN_SYSTEM, clean as clean_screen_answer,
+    explain_failure as screen_failure, parse_screen_request,
+)
+from clio.core.screen import capture as capture_screen
 from clio.capabilities.status import is_status_query
 from clio.capabilities.stop import is_stop_command
 from clio.capabilities.stopwatch import parse_stopwatch_command
@@ -344,6 +349,21 @@ def register_capabilities(o) -> None:
         kind, args = payload  # type: ignore[misc]
         return decide(kind, args)
 
+    async def screen(payload: object) -> str:
+        request = payload  # type: ignore[assignment]
+        try:
+            jpeg, taken = await asyncio.to_thread(capture_screen, request.whole)
+            log.info("Screen captured", extra={"extra_fields": {"of": taken, "bytes": len(jpeg)}})
+            o._intent_used_llm = True
+            answer = await o._llm.look(jpeg, request.question, SCREEN_SYSTEM)
+        except Exception as exc:
+            # Said, not raised: no network or a locked screen is ordinary.
+            await report_error(o._bus, exc, context="screen reading", source="clio.capabilities.screen")
+            return screen_failure(exc)
+        # The answer joins the conversation as text like any reply, so "so how
+        # do I fix it" follows on without sending the picture again.
+        return clean_screen_answer(answer) or "I looked, but I couldn't make anything out."
+
     async def stopwatch(payload: object) -> str:
         return o._stopwatch.handle(str(payload))
 
@@ -428,6 +448,8 @@ def register_capabilities(o) -> None:
     r.register("help", parse_help_request, help_me)
     r.register("voice", parse_voice_request, voice)
     r.register("chance", parse_chance_request, chance)
+    # Before files and open, which would read "read this" as a file to find.
+    r.register("screen", parse_screen_request, screen, offline=False)
     # File writes before clipboard, files and open: "copy the report to Desktop"
     # is not a clipboard transform, and "move it to Downloads" is not a lookup.
     # Each only claims a sentence whose names resolved to real files.

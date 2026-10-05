@@ -556,8 +556,14 @@
 
   On demand only. No continuous capture - cost and privacy both.
 
-  - [ ] **8.1** On-demand screen capture, explicitly triggered
-  - [ ] **8.2** Screen understanding - "what's on my screen", "read this to me", "what does this error mean"
+  - [x] **8.1** On-demand screen capture, explicitly triggered
+  - [x] **8.2** Screen understanding - "what's on my screen", "read this to me", "what does this error mean"
+    - **Built together** (`clio/core/screen.py`, `clio/capabilities/screen.py`, `look` on the Groq provider). "What's on my screen", "read this to me", "what does this error mean", "explain this", "what am I looking at"; add "the whole screen" for the full monitor. Fixed phrases, so no model call decides it is a screen question. "This" means the screen and "that" does not: "explain that" after one of her answers stays conversation.
+    - **His choices:** only the window in front is captured (Clio's own windows, minimised and hidden ones are stepped past), and asking is the permission - FREE, no readback, never captured unasked. Shrunk to at most 1600px, sent as a JPEG from memory, never saved to disk.
+    - **The model is `qwen/qwen3.8-27b`** (`[llm] model_vision`), the one Groq model on his account that can see - which also unblocks the parked "looking at images". No local fallback: his Ollama has no model that can see. The answer joins the conversation as text, so "so how do I fix it" carries on without a second picture. Markdown is stripped before it is spoken.
+    - **Live-verified** 2026-10-05: a real console window showing `ModuleNotFoundError: No module named 'nosuchmodule_at_all'` was captured on its own, cropped to the window, and Groq answered correctly in 1.0 seconds - the module doesn't exist; fix the name or install it.
+    - **Found live:** Kaspersky re-signs HTTPS with its own root, which Python didn't trust, so *every* Groq call was failing, not only pictures. Fixed separately: Clio now checks certificates against Windows' store (`truststore`).
+    - **Known limits:** Groq allows the image model 7,000 input tokens a minute. A window costs about 870, the whole screen about 2,150, so three whole-screen questions in a minute hits the limit and she says so. A window covered by another is captured as you see it, not as it is underneath. Not verified: by voice, and the whole-screen answer was not checked against its picture.
   - [ ] **8.3** Active-window context - resolve vague references by checking what you are actually looking at
   - [ ] **8.4** Vision cost controls - downscaling, caching, a per-day budget cap with a visible counter
   - [ ] **8.5** Meeting awareness - capture system audio (WASAPI loopback) alongside the mic so she can transcribe a call, summarise it after, and answer a question *you* ask her during it. For your side of the call only.

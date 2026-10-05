@@ -35,6 +35,8 @@ class LLMConfig:
     effort_reasoning: str
     local_fallback_model: str
     local_fallback_host: str
+    # Not a tier: the gpt-oss models can't see, so pictures (8.2) go here.
+    model_vision: str = "qwen/qwen3.8-27b"
 
     def model_for(self, tier: str = "default") -> str:
         try:
@@ -299,6 +301,9 @@ def load_config(root: Path | None = None) -> Config:
             ),
             local_fallback_host=_env_override(
                 "CLIO_LLM_LOCAL_FALLBACK_HOST", raw["llm"]["local_fallback_host"]
+            ),
+            model_vision=_env_override(
+                "CLIO_LLM_MODEL_VISION", raw["llm"].get("model_vision", LLMConfig.model_vision)
             ),
         )
         speech = SpeechConfig(

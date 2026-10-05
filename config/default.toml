@@ -10,6 +10,7 @@ provider = "groq"
 model_fast = "openai/gpt-oss-20b"           # routing decisions, simple lookups, low-stakes classification
 model_default = "openai/gpt-oss-120b"       # general conversation, most tool calls - what gets spoken
 model_reasoning = "openai/gpt-oss-120b"     # multi-step planning, where thinking is worth the wait
+model_vision = "qwen/qwen3.8-27b"           # screen reading (8.2) - the only Groq model on his account that can see
 
 # gpt-oss exposes reasoning effort as a request parameter, and keeps its reasoning in a
 # separate field rather than inline <think> tags - so nothing has to be stripped before
