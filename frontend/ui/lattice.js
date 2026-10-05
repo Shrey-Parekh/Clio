@@ -34,6 +34,8 @@
     { r: 0.96, blades: 6, wob: 1.4, dir:  1, lw: 1.0 }
   ];
   var TAU = Math.PI * 2;
+  // Frames per second. The display may refresh at 143 Hz; this does not need to.
+  var IDLE_FPS = 12, ACTIVE_FPS = 30;
 
   function hash(i) { var x = Math.sin(i * 127.1) * 43758.5453; return x - Math.floor(x); }
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -84,6 +86,13 @@
 
       this._reduce = matchMedia('(prefers-reduced-motion: reduce)');
       this._loop = this.frame.bind(this);
+      // The loop stops itself while the window is hidden; this starts it again.
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && this._sleeping) {
+          this._sleeping = false; this.last = performance.now();
+          requestAnimationFrame(this._loop);
+        }
+      }.bind(this));
       requestAnimationFrame(this._loop);
     }
 
@@ -124,7 +133,16 @@
 
     frame(now) {
       if (!this._built) return;
-      var dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
+      // Found live, 2026-10-05: on his 143 Hz monitor this drew 145 frames a
+      // second forever, standby included, and kept his GPU about 30 points
+      // busier (9% to 39%) - his games lagged with Clio idle. Pausing it
+      // dropped the GPU straight back to 9%. Skipping frames inside
+      // requestAnimationFrame was not enough: CPU fell, the GPU did not,
+      // because asking for a frame every refresh makes the browser and Windows
+      // composite the window every refresh. So the loop sleeps on a timer
+      // between frames (see _next). Nothing at all while hidden.
+      if (document.hidden) { this._sleeping = true; return; }
+      var dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
       var ts = (now - this.t0) / 1000;
       var cur = this.state;
 
@@ -182,7 +200,15 @@
       }
 
       this.draw(this._reduce.matches ? 4.0 : ts, this._reduce.matches);
-      requestAnimationFrame(this._loop);
+      this._next();
+    }
+
+    // Standby drifts slowly, so 12 fps looks the same as 143; the active
+    // states get 30. One frame is requested only when one is due.
+    _next() {
+      var idle = this.state === 'standby' || this.state === 'offline' || this.state === 'muted';
+      var loop = this._loop;
+      setTimeout(function () { requestAnimationFrame(loop); }, 1000 / (idle ? IDLE_FPS : ACTIVE_FPS));
     }
 
     draw(ts, still) {
