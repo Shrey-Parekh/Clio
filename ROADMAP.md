@@ -564,14 +564,6 @@
     - **User space, no kernel.** Loopback capture is a documented WASAPI mode; nothing here needs a driver. The one thing kernel level would add is hiding Clio from the other participants' software, which is the line below.
     - **Consent is a design constraint, not a footnote.** Capturing other people's voices is recording-consent-regulated in two-party jurisdictions. The build is transcribe-your-own-call and ask-Clio-quietly; it is not built to be undetectable by the other side, because the only value in undetectability is deception (interviews, exams), and that is out of scope by choice rather than by capability.
     - Depends on 5.3 (a HUD to show a live transcript) and reads best with 4.4 (push-to-talk, to ask without the room hearing you address her).
-  - [ ] **8.6** Live dictation - she writes as he speaks, wherever the cursor is: a Word document, Notepad, a chat box, a form field, a browser. Added at his request, 2026-10-02.
-    - **What exists already (4.3) and why it is not this.** `ctrl+alt+d` captures *one* sentence and types it into the focused window, through the small local Whisper model. This task is continuous: it starts by voice ("start dictating", "take this down") or by the hotkey, keeps writing sentence after sentence, and ends on "stop dictating" or the hotkey. No model reply and no speech from her while it runs.
-    - **Accuracy is the requirement, not a nice-to-have.** The local `small.en` model is what mishears today. The design has to decide between a larger local model and Groq's `whisper-large-v3` (already on his account), and it has to be measured on his voice and his microphone before it is called done - a word error count on a passage he reads, not an impression.
-    - **Text has to arrive the way he would have typed it:** sentence capitalisation and punctuation, spoken punctuation and layout ("comma", "full stop", "new line", "new paragraph"), and names and terms he uses spelled the way he spells them (his facts file is the obvious source).
-    - **Fixing mistakes by voice** - "scratch that" removes the last thing written, "correct X to Y" fixes a word - because a dictation tool he has to correct by hand is slower than typing.
-    - **It only writes where he is looking.** If the focused window changes mid-dictation she stops rather than typing into whatever came to the front, and she never types into a password field. Dictated text is never treated as a command: "delete everything" said while dictating is written, not obeyed.
-    - **The HUD shows that she is dictating**, and the last line written, so he can tell at a glance why she is not answering.
-    - Depends on nothing else in Phase 8, so it can be built before 8.1 if he wants it first.
 
   ---
 
@@ -603,6 +595,21 @@
   - [ ] **11.2** Scheduled routines - morning briefing, backups, file organisation
   - [ ] **11.3** Batch file operations, with confirmation - many 7.4 operations at once, previewed as a list before any run
   - [ ] **11.4** Home Assistant - local API, vendor-neutral, slotting in as capabilities rather than a new architecture
+
+  ---
+
+  ## Phase 12 - After the major build
+
+  Large additions he wants, held until Phases 8 to 11 are done.
+
+  - [ ] **12.1** Live dictation - she writes as he speaks, wherever the cursor is: a Word document, Notepad, a chat box, a form field, a browser. Added at his request, 2026-10-02.
+    - **What exists already (4.3) and why it is not this.** `ctrl+alt+d` captures *one* sentence and types it into the focused window, through the small local Whisper model. This task is continuous: it starts by voice ("start dictating", "take this down") or by the hotkey, keeps writing sentence after sentence, and ends on "stop dictating" or the hotkey. No model reply and no speech from her while it runs.
+    - **Accuracy is the requirement, not a nice-to-have.** The local `small.en` model is what mishears today. The design has to decide between a larger local model and Groq's `whisper-large-v3` (already on his account), and it has to be measured on his voice and his microphone before it is called done - a word error count on a passage he reads, not an impression.
+    - **Text has to arrive the way he would have typed it:** sentence capitalisation and punctuation, spoken punctuation and layout ("comma", "full stop", "new line", "new paragraph"), and names and terms he uses spelled the way he spells them (his facts file is the obvious source).
+    - **Fixing mistakes by voice** - "scratch that" removes the last thing written, "correct X to Y" fixes a word - because a dictation tool he has to correct by hand is slower than typing.
+    - **It only writes where he is looking.** If the focused window changes mid-dictation she stops rather than typing into whatever came to the front, and she never types into a password field. Dictated text is never treated as a command: "delete everything" said while dictating is written, not obeyed.
+    - **The HUD shows that she is dictating**, and the last line written, so he can tell at a glance why she is not answering.
+    - Moved here from 8.6 on 2026-10-05, at his call: it is a new speech path, voice editing and window safety in one, so it waits until the major phases are built. Depends on nothing else, so it can be pulled forward at any time.
 
   ---
 
