@@ -8,6 +8,7 @@ narrower intents register before broader ones.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 
 from clio.capabilities.assistant import (
@@ -33,7 +34,7 @@ from clio.capabilities.remind import (
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.screen import (
     SYSTEM as SCREEN_SYSTEM, clean as clean_screen_answer,
-    explain_failure as screen_failure, parse_screen_request,
+    explain_failure as screen_failure, parse_budget_request, parse_screen_request, same_view,
 )
 from clio.core.screen import capture as capture_screen
 from clio.capabilities.status import is_status_query
@@ -56,6 +57,10 @@ from clio.core.logging import get_logger
 from clio.llm import longform
 
 log = get_logger("clio.registry")
+
+# Asking the same thing about an unchanged screen within this long repeats the
+# last answer for free - the "say that again, I missed it" case.
+_REUSE_S = 120.0
 
 
 def register_capabilities(o) -> None:
@@ -349,20 +354,38 @@ def register_capabilities(o) -> None:
         kind, args = payload  # type: ignore[misc]
         return decide(kind, args)
 
+    # The last picture sent and what came back, so the same question about an
+    # unchanged screen is answered again without spending a look (8.4).
+    last_look: dict = {}
+
     async def screen(payload: object) -> str:
         request = payload  # type: ignore[assignment]
+        asked = " ".join(request.question.lower().split())
         try:
             jpeg, taken = await asyncio.to_thread(capture_screen, request.whole)
             log.info("Screen captured", extra={"extra_fields": {"of": taken, "bytes": len(jpeg)}})
+            if (last_look.get("asked") == asked and time.monotonic() - last_look["at"] < _REUSE_S
+                    and await asyncio.to_thread(same_view, last_look["jpeg"], jpeg)):
+                log.info("Screen unchanged, answer reused")
+                return last_look["answer"]
+            if o._vision_budget.left() == 0:
+                return o._vision_budget.spoken()
             o._intent_used_llm = True
             answer = await o._llm.look(jpeg, request.question, SCREEN_SYSTEM)
         except Exception as exc:
             # Said, not raised: no network or a locked screen is ordinary.
             await report_error(o._bus, exc, context="screen reading", source="clio.capabilities.screen")
             return screen_failure(exc)
+        used = await asyncio.to_thread(o._vision_budget.spend)
+        await o._emit("clio.vision", {"used": used, "cap": o._vision_budget.cap})
         # The answer joins the conversation as text like any reply, so "so how
         # do I fix it" follows on without sending the picture again.
-        return clean_screen_answer(answer) or "I looked, but I couldn't make anything out."
+        spoken = clean_screen_answer(answer) or "I looked, but I couldn't make anything out."
+        last_look.update(asked=asked, at=time.monotonic(), jpeg=jpeg, answer=spoken)
+        return spoken
+
+    async def screen_budget(_payload: object) -> str:
+        return await asyncio.to_thread(o._vision_budget.spoken)
 
     async def stopwatch(payload: object) -> str:
         return o._stopwatch.handle(str(payload))
@@ -450,6 +473,7 @@ def register_capabilities(o) -> None:
     r.register("chance", parse_chance_request, chance)
     # Before files and open, which would read "read this" as a file to find.
     r.register("screen", parse_screen_request, screen, offline=False)
+    r.register("screen_budget", parse_budget_request, screen_budget)
     # File writes before clipboard, files and open: "copy the report to Desktop"
     # is not a clipboard transform, and "move it to Downloads" is not a lookup.
     # Each only claims a sentence whose names resolved to real files.

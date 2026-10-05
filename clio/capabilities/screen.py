@@ -11,8 +11,12 @@ She never looks unless asked.
 
 from __future__ import annotations
 
+import io
+import json
 import re
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 
 from clio.core.screen import CaptureError
 from clio.llm.provider import LLMPermanentError, LLMRateLimited
@@ -63,6 +67,63 @@ def clean(answer: str) -> str:
     # Not "_": it is part of names like my_var that he may need to hear.
     answer = re.sub(r"[*`]+|^#+\s*", "", answer, flags=re.M)
     return " ".join(answer.split())
+
+
+_BUDGET = re.compile(
+    rf"^{_LEAD}(?:how many (?:screen )?looks(?: at the screen)? (?:are |have i got |do i have )?left"
+    r"(?: today)?|what'?s (?:left of )?(?:my |the )?(?:screen|vision) budget)$")
+
+
+def parse_budget_request(text: str) -> bool | None:
+    return True if _BUDGET.match(re.sub(r"[.!?]+$", "", text.strip().lower())) else None
+
+
+class Budget:
+    """Pictures sent per day (8.4). Groq's free tier costs nothing in money but
+    caps what can be sent, so the budget is a count, kept on disk so a restart
+    doesn't reset it, and starting again each day."""
+
+    def __init__(self, path: Path, cap: int, today=date.today):
+        self._path, self.cap, self._today = Path(path), cap, today
+
+    def used(self) -> int:
+        try:
+            saved = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        return int(saved.get("used", 0)) if saved.get("date") == self._today().isoformat() else 0
+
+    def left(self) -> int:
+        return max(self.cap - self.used(), 0)
+
+    def spend(self) -> int:
+        used = self.used() + 1
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(json.dumps({"date": self._today().isoformat(), "used": used}),
+                              encoding="utf-8")
+        return used
+
+    def spoken(self) -> str:
+        left = self.left()
+        if left == 0:
+            return (f"I've used today's {self.cap} looks at the screen - ask me tomorrow, "
+                    "or raise vision_daily_cap in the settings.")
+        return f"{left} of today's {self.cap} looks at the screen left."
+
+
+def same_view(a: bytes, b: bytes) -> bool:
+    """Whether two screenshots show the same thing, so the last answer still
+    holds. Strict on purpose: measured on drawn terminals, one changed letter
+    in an error moves as many pixels as a blinking cursor, so nothing can tell
+    them apart. Only a clock-tick's worth of change counts as the same; a
+    blink costs a fresh look, but an answer is never stale."""
+    from PIL import Image, ImageChops
+
+    def thumb(jpeg: bytes):
+        return Image.open(io.BytesIO(jpeg)).convert("L").resize((128, 128), Image.BOX)
+
+    changed = ImageChops.difference(thumb(a), thumb(b)).point(lambda v: 255 if v > 12 else 0)
+    return changed.histogram()[255] <= 1
 
 
 def explain_failure(exc: Exception) -> str:

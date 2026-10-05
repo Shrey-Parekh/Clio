@@ -19,10 +19,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PIL import Image  # noqa: E402
+from datetime import date  # noqa: E402
+
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 from clio.capabilities import registry  # noqa: E402
-from clio.capabilities.screen import clean, explain_failure, parse_screen_request  # noqa: E402
+from clio.capabilities.screen import (  # noqa: E402
+    Budget, clean, explain_failure, parse_budget_request, parse_screen_request, same_view,
+)
 from clio.core.permissions import Permission  # noqa: E402
 from clio.core.screen import LONGEST_SIDE, CaptureError, Window, pick, shrink  # noqa: E402
 from clio.llm.provider import LLMError, LLMPermanentError, LLMRateLimited  # noqa: E402
@@ -40,6 +44,19 @@ NOT_SCREEN = [
     "explain that", "read that to me", "what does that mean", "what's on my calendar",
     "what went wrong", "explain quantum physics",
 ]
+
+
+def console(lines, cursor=True, clock="10:41"):
+    """A console window drawn the way the live check's looked: the cases that
+    decide whether an answer may be reused were measured on these."""
+    image = Image.new("RGB", (1115, 628), (12, 12, 12))
+    draw, font = ImageDraw.Draw(image), ImageFont.load_default(size=16)
+    for i, line in enumerate(lines):
+        draw.text((10, 10 + i * 20), line, fill=(204, 204, 204), font=font)
+    if cursor:
+        draw.rectangle((300, 10 + len(lines) * 20, 309, 26 + len(lines) * 20), fill=(204, 204, 204))
+    draw.text((1050, 600), clock, fill=(204, 204, 204), font=font)
+    return shrink(image)
 
 
 class FakeLLM:
@@ -135,6 +152,56 @@ async def main():
         spoken = await o._router.match("what's on my screen").run()
         assert spoken == "I couldn't take a picture of the screen.", spoken
         print("OK  a dead network or a locked screen is said, not raised")
+
+        # --- 8.4: the daily budget, and reusing an answer ---
+
+        assert parse_budget_request("how many screen looks are left") is True
+        assert parse_budget_request("what's my vision budget?") is True
+        assert parse_budget_request("how many emails are left") is None
+        assert o._router.match("how many looks have i got left today").intent == "screen_budget"
+
+        today = [date(2026, 10, 6)]
+        budget = Budget(base / "vision.json", cap=2, today=lambda: today[0])
+        assert budget.left() == 2 and budget.spend() == 1 and budget.spend() == 2
+        assert budget.left() == 0 and "today's 2 looks" in budget.spoken()
+        assert Budget(base / "vision.json", cap=2, today=lambda: today[0]).used() == 2, "kept on disk"
+        today[0] = date(2026, 10, 7)
+        assert budget.left() == 2, "a new day starts again"
+        (base / "vision.json").write_text("not json", encoding="utf-8")
+        assert budget.used() == 0, "a broken file is a fresh day, not a crash"
+        print("OK  the daily count survives a restart, resets each day, and says what's left")
+
+        error = console(["ModuleNotFoundError: No module named 'torch'"])
+        assert same_view(error, console(["ModuleNotFoundError: No module named 'torch'"], clock="10:42"))
+        assert not same_view(error, console(["ModuleNotFoundError: No module named 'torcH'"])), \
+            "one letter changed in the error is a new error"
+        assert not same_view(error, console(["ModuleNotFoundError: No module named 'torch'"], cursor=False)), \
+            "a blink can't be told from a letter, so it costs a fresh look rather than risk a stale answer"
+        print("OK  only a clock tick counts as unchanged; one changed letter never reuses an answer")
+
+        shots = [error]
+        registry.capture_screen = lambda whole: (shots[0], "Windows PowerShell")
+        o._llm = llm = FakeLLM("It means torch isn't installed.")
+        o._vision_budget = Budget(base / "v2.json", cap=3, today=lambda: today[0])
+        events = []
+
+        async def emit(name, payload):
+            events.append((name, payload))
+
+        o._emit = emit
+        said = "what does this error mean"
+        assert await o._router.match(said).run() == "It means torch isn't installed."
+        assert await o._router.match(said).run() == "It means torch isn't installed."
+        assert len(llm.calls) == 1 and o._vision_budget.used() == 1, "asked again, unchanged: free"
+        assert events == [("clio.vision", {"used": 1, "cap": 3})], events
+        shots[0] = console(["ModuleNotFoundError: No module named 'numpy'"])
+        await o._router.match(said).run()
+        assert len(llm.calls) == 2, "the screen changed: a fresh look"
+        await o._router.match("explain this").run()
+        assert len(llm.calls) == 3 and o._vision_budget.left() == 0
+        spoken = await o._router.match("explain this error").run()
+        assert len(llm.calls) == 3 and "today's 3 looks" in spoken, spoken
+        print("OK  same question on an unchanged screen is free; at the cap nothing is sent")
 
         print("\nAll screen checks passed.")
     finally:

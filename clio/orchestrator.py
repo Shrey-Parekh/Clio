@@ -20,6 +20,7 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.screen import Budget
 from clio.capabilities.draft import DraftCapability
 from clio.capabilities.filewrite import FileWriter
 from clio.capabilities.projects import ProjectCapability
@@ -155,6 +156,7 @@ class Orchestrator:
         config_path: Path | None = None,
         memory_root: str | None = None,
         core_port: int = 8765,
+        vision_daily_cap: int = 50,
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._shortcuts = shortcuts or {}
@@ -189,6 +191,7 @@ class Orchestrator:
         # runner, so a slow command becomes a job like any project run.
         self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
         self._software = Software(self._jobs)
+        self._vision_budget = Budget(Path(memory_root or "memory") / "vision_usage.json", vision_daily_cap)
         # "Undo that" belongs to whichever of files or the clipboard changed
         # something most recently. Empty until one of them does.
         self._last_undoable = ""
@@ -1260,6 +1263,7 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         config_path=PROJECT_ROOT / "config" / "default.toml",
         memory_root=config.memory.root,
         core_port=config.runtime.core_port,
+        vision_daily_cap=config.llm.vision_daily_cap,
     )
 
 

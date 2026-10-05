@@ -22,6 +22,9 @@
   // "MIC LIVE" used to mean only "not muted". It stayed lit while his mic was
   // too quiet for her to hear a word. The core now says when that happens.
   var micQuiet = false;
+  // After each look at the screen, the day's count shows for a few seconds in
+  // place of the state note (8.4), so the budget is visible without a panel.
+  var visionNote = '', visionUntil = 0, VISION_SHOW_MS = 6000;
 
   function render(name) {
     var s = STATES[connected ? name : 'offline'] || STATES.standby;
@@ -30,7 +33,7 @@
     elState.style.textShadow = connected
       ? '0 0 26px ' + s.color + '55, 0 0 9px ' + s.color + '30'
       : 'none';
-    elNote.textContent = s.note;
+    elNote.textContent = Date.now() < visionUntil ? visionNote : s.note;
     elMeter.style.width = s.meter;
     elMeter.style.background = s.color;
     lattice.setAttribute('state', connected ? name : 'offline');
@@ -56,6 +59,13 @@
   });
   bus.on('clio.wake', function () { if (lattice.pulse) lattice.pulse(); });
   bus.on('clio.mic', function (p) { micQuiet = !!(p && p.quiet); render(current); });
+  bus.on('clio.vision', function (p) {
+    if (!p) return;
+    visionNote = 'Screen looks ' + p.used + '/' + p.cap + ' today';
+    visionUntil = Date.now() + VISION_SHOW_MS;
+    render(current);
+    setTimeout(function () { render(current); }, VISION_SHOW_MS + 50);
+  });
   bus.on('clio.transcript', function (p) {
     if (!p || !p.text) return;
     (p.role === 'assistant' ? elClio : elYou).textContent = p.text;

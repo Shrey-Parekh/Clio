@@ -67,6 +67,7 @@ _DESCRIPTIONS = {
     "clipboard": "fix up whatever you've copied",
     "chance": "flip a coin or roll dice",
     "screen": "read what's on your screen and explain errors on it",
+    "screen_budget": "say how many looks at the screen are left today",
     "status": "tell you what's still working when something breaks",
     "diagnose": "explain what went wrong",
     "voice": "talk faster or slower",

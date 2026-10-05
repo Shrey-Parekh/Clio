@@ -37,6 +37,7 @@ class LLMConfig:
     local_fallback_host: str
     # Not a tier: the gpt-oss models can't see, so pictures (8.2) go here.
     model_vision: str = "qwen/qwen3.8-27b"
+    vision_daily_cap: int = 50   # pictures sent per day (8.4)
 
     def model_for(self, tier: str = "default") -> str:
         try:
@@ -305,6 +306,7 @@ def load_config(root: Path | None = None) -> Config:
             model_vision=_env_override(
                 "CLIO_LLM_MODEL_VISION", raw["llm"].get("model_vision", LLMConfig.model_vision)
             ),
+            vision_daily_cap=int(raw["llm"].get("vision_daily_cap", LLMConfig.vision_daily_cap)),
         )
         speech = SpeechConfig(
             tts_engine=_env_override("CLIO_TTS_ENGINE", raw["speech"]["tts_engine"]),
