@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import re
+import threading
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -20,7 +21,9 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.meeting import STARTED, SUMMARY_ASK, Meeting, addressed, parse_meeting_request
 from clio.capabilities.screen import Budget
+from clio.speech.loopback import loopback_frames
 from clio.capabilities.draft import DraftCapability
 from clio.capabilities.filewrite import FileWriter
 from clio.capabilities.projects import ProjectCapability
@@ -44,6 +47,7 @@ from clio.core.jobs import JobRunner
 from clio.core.logging import get_logger
 from clio.core.permissions import Permission, PermissionPolicy, is_affirmative
 from clio.core.router import IntentRouter, Match
+from clio.llm import longform
 from clio.llm.memory import ConversationMemory
 from clio.llm.provider import LLMProvider, build_default_provider
 from clio.memory.store import MemoryStore
@@ -157,6 +161,7 @@ class Orchestrator:
         memory_root: str | None = None,
         core_port: int = 8765,
         vision_daily_cap: int = 50,
+        meeting_ear=None,
     ):
         self._location = location or LocationConfig(name="", latitude=0.0, longitude=0.0)
         self._shortcuts = shortcuts or {}
@@ -192,6 +197,12 @@ class Orchestrator:
         self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
         self._software = Software(self._jobs)
         self._vision_budget = Budget(Path(memory_root or "memory") / "vision_usage.json", vision_daily_cap)
+        self._memory_root = Path(memory_root or "memory")
+        # 8.5: makes a second turn detector, with its own VAD state, for the
+        # call audio. None where there is no audio stack (tests, mostly).
+        self._meeting_ear = meeting_ear
+        self._meeting: Meeting | None = None
+        self._meeting_stop = asyncio.Event()
         # "Undo that" belongs to whichever of files or the clipboard changed
         # something most recently. Empty until one of them does.
         self._last_undoable = ""
@@ -319,6 +330,11 @@ class Orchestrator:
                 self._announcement_ready.clear()
                 continue
 
+            if phrase == "meeting":
+                # Started from the chat window: no wake cue, straight to notes.
+                await self._meeting_loop()
+                continue
+
             # Before STT or the model runs, so the trigger is acknowledged
             # while the slow work happens.
             play_wake_cue()
@@ -333,6 +349,8 @@ class Orchestrator:
                 await self._ptt_turn()
             else:
                 await self._conversation_loop()
+            if self._meeting is not None:
+                await self._meeting_loop()
             await self._emit("clio.state", {"state": "idle"})
 
     def _start_triggers(self) -> None:
@@ -429,7 +447,7 @@ class Orchestrator:
             self._memory.add_assistant(reply)
             self._record(role="assistant", content=reply)
             await self._emit("clio.transcript", {"role": "assistant", "text": reply})
-        await self._emit("clio.state", {"state": "idle"})
+        await self._emit("clio.state", {"state": "meeting" if self._meeting is not None else "idle"})
         return reply
 
     def facts(self) -> list[str]:
@@ -586,6 +604,13 @@ class Orchestrator:
                 if not streamed:
                     await self._emit("clio.transcript", {"role": "assistant", "text": reply})
                     await self._emit("clio.state", {"state": "speaking"})
+                if self._meeting is not None and isinstance(reply, str):
+                    # Meeting notes just started: say so once, with no follow-up
+                    # listen - from here the meeting loop owns the microphone.
+                    await self._speaker.speak(reply, self._frames, listen_after_s=0.0)
+                    self._memory.add_assistant(reply)
+                    self._record(role="assistant", content=reply)
+                    return
                 session = ConversationSession(self._speaker, follow_up_window_s=self._follow_up_window_s)
                 outcome = await session.respond(reply, self._frames)
 
@@ -846,6 +871,9 @@ class Orchestrator:
         routed = await self._route(text)
         if routed is not None:
             return routed
+        if self._meeting is not None:
+            # Typed during a call: almost always about the call.
+            return await self._about_meeting(text), True
         await self._prepare_prompt(text)
         try:
             reply = await self._llm.complete(self._memory.get_messages())
@@ -901,6 +929,116 @@ class Orchestrator:
         # Most intents are free; summarising a file isn't, and that must be
         # reported so the session is accounted for.
         return spoken, self._intent_used_llm
+
+    # --- meeting notes (8.5) ---
+
+    def start_meeting(self) -> str:
+        if self._meeting is not None:
+            return "I'm already taking notes."
+        if self._muted:
+            return "I'm muted, so I can't hear the call - unmute me first."
+        if self._meeting_ear is None:
+            return "I can't hear what the PC plays on this setup, so I can't take call notes."
+        self._meeting = Meeting()
+        self._meeting_stop = asyncio.Event()
+        # From the chat window the voice loop is waiting for the wake word;
+        # this wakes it straight into the meeting. By voice, the conversation
+        # loop hands over after saying it has started.
+        if self._typed:
+            self._fire_trigger("meeting")
+        log.info("Meeting notes started")
+        return STARTED
+
+    def stop_meeting(self) -> str:
+        if self._meeting is None:
+            return "I'm not taking notes at the moment."
+        self._meeting_stop.set()
+        return "Stopping - I'll write the notes up."
+
+    async def _meeting_loop(self) -> None:
+        """Both sides of the call, transcribed until he says stop: his mic as
+        "You", what the PC plays as "Them". She says nothing until it ends."""
+        meeting, stop = self._meeting, self._meeting_stop
+        if meeting is None:
+            return
+        await self._emit("clio.state", {"state": "meeting"})
+        loopback_stop = threading.Event()
+        # One speech-to-text model, two speakers: taken in turn.
+        stt_lock = asyncio.Lock()
+
+        async def hear(frames, detector, who: str) -> None:
+            while not stop.is_set():
+                onset = await detector.wait_for_onset(frames, stop=stop)
+                if onset is None:
+                    return
+                audio = await detector.capture_until_silence(frames, onset)
+                async with stt_lock:
+                    text = await self._transcribe(audio)
+                if not text:
+                    continue
+                asked = addressed(text) if who == "You" else None
+                if asked is not None:
+                    await self._meeting_heard(asked)
+                    continue
+                meeting.add(who, text)
+                if meeting.too_long():
+                    log.info("Meeting notes hit the time limit")
+                    stop.set()
+
+        # Never cancelled: cancelling a reader closes the shared mic stream for
+        # every later reader. Both notice `stop` on their next frame.
+        them = asyncio.ensure_future(hear(loopback_frames(loopback_stop), self._meeting_ear(), "Them"))
+        you = asyncio.ensure_future(hear(self._frames, self._turn_detector, "You"))
+        await stop.wait()
+        loopback_stop.set()
+        await asyncio.gather(you, them, return_exceptions=True)
+        self._meeting = None
+        await self._emit("clio.state", {"state": "thinking"})
+        said = await self._write_up(meeting)
+        await self._emit("clio.state", {"state": "speaking"})
+        await self._speaker.speak(said, self._frames, listen_after_s=0.0)
+
+    async def _meeting_heard(self, asked: str) -> None:
+        """He addressed her mid-call: stop, or a question answered on screen."""
+        if parse_meeting_request(asked) == "stop" or parse_meeting_request(f"stop {asked}") == "stop":
+            self._meeting_stop.set()
+            return
+        await self._emit("clio.transcript", {"role": "user", "text": asked})
+        reply = await self._about_meeting(asked)
+        await self._emit("clio.transcript", {"role": "assistant", "text": reply})
+
+    async def _about_meeting(self, question: str) -> str:
+        try:
+            return await self._llm.complete(
+                [{"role": "system", "content": self._persona_system_prompt},
+                 {"role": "user", "content": self._meeting.question_prompt(question)}])
+        except Exception as exc:
+            described = await report_error(self._bus, exc, context="call question",
+                                           source="clio.orchestrator")
+            return described.spoken
+
+    async def _write_up(self, meeting: Meeting) -> str:
+        """The summary saved, the transcript dropped. If the summary can't be
+        written, the transcript is saved instead - losing the whole call to a
+        dropped connection would be worse than keeping what he said not to."""
+        if not meeting.lines:
+            return "Stopped. I didn't catch anything to take notes on, so there's nothing saved."
+        root = self._memory_root
+        try:
+            summary = await longform.summarise(meeting.transcript(), SUMMARY_ASK,
+                                               self._persona_system_prompt, self._llm,
+                                               max_chunks=40)
+        except Exception as exc:
+            await report_error(self._bus, exc, context="call summary", source="clio.orchestrator")
+            path = await asyncio.to_thread(meeting.save, root, "Summary failed; the transcript, "
+                                           "kept so the call isn't lost:\n\n" + meeting.transcript())
+            return f"I couldn't write the summary, so I kept the transcript instead, in {path.name}."
+        path = await asyncio.to_thread(meeting.save, root, summary)
+        await self._emit("clio.transcript", {"role": "assistant", "text": summary})
+        # So "what did we decide on that call?" can be answered later.
+        self._memory.add_assistant(f"Notes from the call just now: {summary}")
+        log.info("Meeting notes saved", extra={"extra_fields": {"file": path.name, "lines": len(meeting.lines)}})
+        return "Notes saved. The summary's in the chat window."
 
     async def _about_selection(self, request: str) -> str:
         """8.3: a question about the text he has selected, answered from that
@@ -1203,6 +1341,11 @@ class Orchestrator:
             log.info("Consolidated durable facts", extra={"extra_fields": {"added": added}})
 
     async def _announce(self, text: str) -> None:
+        if self._meeting is not None:
+            # A timer or reminder during a call is shown, never said: it would
+            # be heard on the call.
+            await self._emit("clio.transcript", {"role": "assistant", "text": text})
+            return
 
         await self._announcements.put(text)
         self._announcement_ready.set()
@@ -1264,6 +1407,12 @@ def build_orchestrator(config: Config, bus: EventBus | None = None) -> Orchestra
         memory_root=config.memory.root,
         core_port=config.runtime.core_port,
         vision_daily_cap=config.llm.vision_daily_cap,
+        meeting_ear=lambda: TurnDetector(
+            VoiceActivityDetector(config.audio.vad_model_path),
+            threshold=config.audio.vad_threshold,
+            min_speech_ms=config.audio.vad_min_speech_ms,
+            end_silence_ms=config.audio.vad_end_silence_ms,
+        ),
     )
 
 

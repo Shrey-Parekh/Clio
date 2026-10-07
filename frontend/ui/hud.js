@@ -4,6 +4,7 @@
     listening: { word:'Listening', color:'#E3EEF3', note:'Recording · local only', meter:'100%' },
     thinking:  { word:'Thinking',  color:'#9FB4BC', note:'Working it out',         meter:'62%' },
     speaking:  { word:'Speaking',  color:'#9BE0CA', note:'Answering aloud',        meter:'84%' },
+    meeting:   { word:'On a call', color:'#9BE0CA', note:'Transcribing · answers on screen', meter:'40%' },
     muted:     { word:'Muted',     color:'#A85A44', note:'Microphone off',         meter:'0%' },
     offline:   { word:'No core',   color:'#6B7078', note:'Reconnecting to 8765',   meter:'0%' }
   };

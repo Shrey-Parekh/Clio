@@ -21,6 +21,8 @@ accounts: files, apps, email, projects, commands, installs.
 | Commands | `git`, `pip`, `python`, `npm`, `cargo` by voice - no shell anywhere; read-only commands run free, the rest are read back first |
 | Software | Install, update and uninstall through `winget`, one app at a time, reading back the exact package id |
 | Loose requests | A sentence she doesn't recognise is reworded into one she does and checked with him; a request with several steps becomes a plan he approves once |
+| Screen | "What's on my screen", "what does this error mean"; "summarise this", "translate this", "close this" work out what *this* is from the window in front; a daily cap on screen looks |
+| Calls | "Start meeting notes": both sides transcribed locally, questions answered on screen, a summary saved after |
 | Dictation | `Ctrl+Alt+D` types what he says into whatever window has the cursor |
 
 Anything that changes, sends, deletes or spends asks first. Deleting, sending

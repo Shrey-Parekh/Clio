@@ -43,6 +43,7 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "chance": Permission.FREE,
     "screen": Permission.FREE,          # asking is the permission (his choice); never captured unasked
     "screen_budget": Permission.FREE,   # how many looks are left today
+    "meeting": Permission.FREE,         # he starts and stops it; transcribed locally, summary kept on this PC
     "stopwatch": Permission.FREE,
     "timer_control": Permission.FREE,
     "network": Permission.FREE,

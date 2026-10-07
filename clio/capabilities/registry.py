@@ -31,6 +31,7 @@ from clio.capabilities.notes import parse_note_request
 from clio.capabilities.remind import (
     MIN_LEAD_S, parse_reminder_control, parse_reminder_request,
 )
+from clio.capabilities.meeting import parse_meeting_request
 from clio.capabilities.repeat import is_repeat_command
 from clio.capabilities.screen import (
     SYSTEM as SCREEN_SYSTEM, clean as clean_screen_answer,
@@ -384,6 +385,9 @@ def register_capabilities(o) -> None:
         last_look.update(asked=asked, at=time.monotonic(), jpeg=jpeg, answer=spoken)
         return spoken
 
+    async def meeting(payload: object) -> str:
+        return o.start_meeting() if payload == "start" else o.stop_meeting()
+
     async def screen_budget(_payload: object) -> str:
         return await asyncio.to_thread(o._vision_budget.spoken)
 
@@ -474,6 +478,7 @@ def register_capabilities(o) -> None:
     # Before files and open, which would read "read this" as a file to find.
     r.register("screen", parse_screen_request, screen, offline=False)
     r.register("screen_budget", parse_budget_request, screen_budget)
+    r.register("meeting", parse_meeting_request, meeting)
     # File writes before clipboard, files and open: "copy the report to Desktop"
     # is not a clipboard transform, and "move it to Downloads" is not a lookup.
     # Each only claims a sentence whose names resolved to real files.

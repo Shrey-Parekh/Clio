@@ -64,6 +64,11 @@ truststore==0.10.4
 
 # Phase 7 added nothing here: jobs, shell commands and winget are subprocess calls.
 
+# Phase 8.5 - meeting notes. Recording what the PC plays (WASAPI loopback)
+# isn't possible through the PortAudio build sounddevice ships; soundcard
+# opens it, pure Python over the cffi that's already installed.
+soundcard==0.4.6
+
 # Phase 8.1 - screen capture. Grabbing a window, shrinking it and encoding a
 # JPEG is three calls in Pillow; by hand it is a BMP-to-PNG encoder and uploads
 # several times larger. Also builds the app icons (frontend/make_icons.py).
