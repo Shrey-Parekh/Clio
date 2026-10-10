@@ -21,6 +21,7 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.github import GitHubCapability
 from clio.capabilities.meeting import STARTED, SUMMARY_ASK, Meeting, addressed, parse_meeting_request
 from clio.capabilities.screen import Budget
 from clio.speech.loopback import loopback_frames
@@ -196,6 +197,7 @@ class Orchestrator:
         # runner, so a slow command becomes a job like any project run.
         self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
         self._software = Software(self._jobs)
+        self._github = GitHubCapability()
         self._vision_budget = Budget(Path(memory_root or "memory") / "vision_usage.json", vision_daily_cap)
         self._memory_root = Path(memory_root or "memory")
         # 8.5: makes a second turn detector, with its own VAD state, for the

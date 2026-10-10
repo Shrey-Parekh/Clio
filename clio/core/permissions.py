@@ -43,6 +43,8 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "chance": Permission.FREE,
     "screen": Permission.FREE,          # asking is the permission (his choice); never captured unasked
     "screen_budget": Permission.FREE,   # how many looks are left today
+    "github": Permission.FREE,          # reading PRs, issues, CI and commits; refusals to merge
+    "github_merge": Permission.CONFIRM, # read back with title, branch and checks; pinned to that commit
     "meeting": Permission.FREE,         # he starts and stops it; transcribed locally, summary kept on this PC
     "stopwatch": Permission.FREE,
     "timer_control": Permission.FREE,

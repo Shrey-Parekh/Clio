@@ -69,6 +69,8 @@ _DESCRIPTIONS = {
     "screen": "read what's on your screen and explain errors on it",
     "screen_budget": "say how many looks at the screen are left today",
     "meeting": "take notes on a call and summarise it after",
+    "github": "check your GitHub pull requests, issues and CI",
+    "github_merge": "merge a pull request once its checks pass",
     "status": "tell you what's still working when something breaks",
     "diagnose": "explain what went wrong",
     "voice": "talk faster or slower",

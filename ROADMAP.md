@@ -592,6 +592,9 @@
   ## Phase 9 - Work and development
 
   - [ ] **9.1** GitHub - read freely (issues, PRs, CI, diffs); push, merge and delete behind confirmation
+    - **Built, waiting on his token for the last live check** (`clio/core/github.py`, `clio/capabilities/github.py`). A fine-grained token (`GITHUB_TOKEN`, his choice) over GitHub's REST API, standard library only. "Any open PRs on clio", "what issues are open on ewaste", "did CI pass on clio" (the failing job and step named), "what changed in PR 4 on clio" (a trimmed diff summarised), "latest commits on clio". The repo is named by voice and matched to his own repos; an unclear name is asked about.
+    - **Merging is the only change (his choice - no deleting branches, no issue changes; pushing stays with 7.5's commands).** Read back with the PR's title, target branch and checks, CONFIRM, and pinned to the commit read back, so a PR that moved on in between is refused by GitHub rather than merged unheard. Failing or running checks, conflicts and drafts are refused on the free path and never ask. The token is limited by GitHub itself to reading plus writing pull requests.
+    - **Verified:** `tests/test_github.py` against replies shaped like GitHub's. Live, read-only, without a token: the real API's replies for his public Clio repo parsed correctly - latest commit, no open PRs or issues, no CI runs. **Not yet live:** with the token (repo list, a private repo, a real merge), a CI run with a failure, a PR summary.
   - [ ] **9.2** Coding agent spawn - works in a directory under supervision and reports back; you review before anything merges. Runs as a 7.2 job, so it is started, watched and stopped the same way.
   - [ ] **9.3** Web automation - navigate, read, fill. Submit, post or buy needs confirmation.
   - [ ] **9.4** Desktop app automation - APIs and scripting first, UI automation only where nothing else exists, brittleness acknowledged
