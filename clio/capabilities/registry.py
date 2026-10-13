@@ -31,6 +31,7 @@ from clio.capabilities.notes import parse_note_request
 from clio.capabilities.remind import (
     MIN_LEAD_S, parse_reminder_control, parse_reminder_request,
 )
+from clio.capabilities.agent import CodingAgent, _first_sentence as agent_first_sentence, parse_agent_request
 from clio.capabilities.github import (
     GitHubCapability, Merge as GitHubMerge, Refusal as GitHubRefusal,
     explain_failure as github_failure, parse_github_request,
@@ -483,6 +484,71 @@ def register_capabilities(o) -> None:
     r.register("screen", parse_screen_request, screen, offline=False)
     r.register("screen_budget", parse_budget_request, screen_budget)
     r.register("meeting", parse_meeting_request, meeting)
+    # 9.2. Starting, merging and throwing away ask first; anything that can't
+    # go ahead is said on the free path instead of asking for a yes it can't use.
+    def match_agent_free(text: str):
+        request = parse_agent_request(text)
+        if request is None:
+            return None
+        if request.kind == "start":
+            refusal, _ = o._agent.plan(request)
+            return ("say", refusal) if refusal else None
+        if request.kind == "merge":
+            refusal, _ = o._agent.merge_plan()
+            return ("say", refusal) if refusal else None
+        if request.kind == "discard":
+            return ("say", "There's no agent work to throw away.") if o._agent.current() is None else None
+        return (request.kind, "")
+
+    def match_agent(kind: str):
+        def matcher(text: str):
+            request = parse_agent_request(text)
+            if request is None or request.kind != kind:
+                return None
+            if kind == "start":
+                refusal, repo = o._agent.plan(request)
+                return None if refusal else (request, repo)
+            if kind == "merge":
+                refusal, run = o._agent.merge_plan()
+                return None if refusal else run
+            return o._agent.current()
+        return matcher
+
+    async def agent_free(payload: object) -> str:
+        kind, said = payload  # type: ignore[misc]
+        if kind == "say":
+            return said
+        if kind == "status":
+            return await asyncio.to_thread(o._agent.status)
+        if kind == "stop":
+            return await asyncio.to_thread(o._agent.stop)
+        full = await asyncio.to_thread(o._agent.show)
+        run = o._agent.current()
+        if run is None or not run.report:
+            return full
+        await o._emit("clio.transcript", {"role": "assistant", "text": full})
+        return (f"{run.files} file{'s' if run.files != 1 else ''} changed. "
+                f"{agent_first_sentence(run.report)} The full report's in the chat window.")
+
+    async def agent_start(payload: object) -> str:
+        request, repo = payload  # type: ignore[misc]
+        said = await asyncio.to_thread(o._agent.start, request, repo)
+        o._agent.watch()
+        return said
+
+    async def agent_merge(_payload: object) -> str:
+        return await asyncio.to_thread(o._agent.merge)
+
+    async def agent_discard(_payload: object) -> str:
+        return await asyncio.to_thread(o._agent.discard)
+
+    # The agent before file writes: "throw away the agent's work" is its
+    # branch, not a file to bin, and file_write would otherwise claim it.
+    r.register("agent", match_agent_free, agent_free)
+    r.register("agent_start", match_agent("start"), agent_start,
+               describe=lambda payload: CodingAgent.describe(*payload))
+    r.register("agent_merge", match_agent("merge"), agent_merge, describe=CodingAgent.describe_merge)
+    r.register("agent_discard", match_agent("discard"), agent_discard, describe=CodingAgent.describe_discard)
     # File writes before clipboard, files and open: "copy the report to Desktop"
     # is not a clipboard transform, and "move it to Downloads" is not a lookup.
     # Each only claims a sentence whose names resolved to real files.
@@ -572,6 +638,8 @@ def register_capabilities(o) -> None:
     r.register("github", match_github_read, github_read, offline=False)
     r.register("github_merge", match_github_merge, github_merge,
                describe=GitHubCapability.describe, offline=False)
+
+
 
     # 7.8. Before the broad verbs below: "update Chrome" is about software,
     # and "install X" is never a shell command without a tool named first.

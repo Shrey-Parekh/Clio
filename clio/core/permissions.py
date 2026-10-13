@@ -43,6 +43,10 @@ _DEFAULT_RULES: dict[str, Permission] = {
     "chance": Permission.FREE,
     "screen": Permission.FREE,          # asking is the permission (his choice); never captured unasked
     "screen_budget": Permission.FREE,   # how many looks are left today
+    "agent": Permission.FREE,           # how it's doing, its changes, stopping it, refusals
+    "agent_start": Permission.CONFIRM,  # uses his Claude plan and edits code, in its own copy
+    "agent_merge": Permission.CONFIRM,  # lands its work on his branch, locally
+    "agent_discard": Permission.CONFIRM,  # deletes its copy and branch - can't be undone
     "github": Permission.FREE,          # reading PRs, issues, CI and commits; refusals to merge
     "github_merge": Permission.CONFIRM, # read back with title, branch and checks; pinned to that commit
     "meeting": Permission.FREE,         # he starts and stops it; transcribed locally, summary kept on this PC

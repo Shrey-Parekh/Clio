@@ -21,6 +21,7 @@ from clio.capabilities.notes import NoteBook
 from clio.capabilities.registry import register_capabilities
 from clio.capabilities.stopwatch import Stopwatch
 from clio.capabilities.remind import ReminderCapability
+from clio.capabilities.agent import CodingAgent
 from clio.capabilities.github import GitHubCapability
 from clio.capabilities.meeting import STARTED, SUMMARY_ASK, Meeting, addressed, parse_meeting_request
 from clio.capabilities.screen import Budget
@@ -198,6 +199,9 @@ class Orchestrator:
         self._shell = ShellCommands(self._file_roots, self._projects, self._jobs)
         self._software = Software(self._jobs)
         self._github = GitHubCapability()
+        # 9.2: its own git worktree, run as one of the jobs above.
+        self._agent = CodingAgent(memory_root or "memory", self._jobs, self._shell._folder,
+                                  announce=self._announce)
         self._vision_budget = Budget(Path(memory_root or "memory") / "vision_usage.json", vision_daily_cap)
         self._memory_root = Path(memory_root or "memory")
         # 8.5: makes a second turn detector, with its own VAD state, for the
@@ -301,6 +305,9 @@ class Orchestrator:
         # first thing she says rather than something he has to go looking for.
         for report in self._jobs.missed():
             await self._announce(report)
+        # An agent still working when Clio last closed gets watched again; one
+        # that finished meanwhile is reported now, the same as any other job.
+        self._agent.watch()
         self._start_triggers()
         try:
             await self._run_loop()
