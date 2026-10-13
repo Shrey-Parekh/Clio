@@ -37,17 +37,15 @@ npm run build      # tauri build
   was. Frameless windows get none of that for free, and the drag region was
   written in Electron's `-webkit-app-region` spelling, which Tauri ignores.
 - `src-tauri/` — the Rust shell: `tauri.conf.json` (windows + CSP), `src/main.rs`
-  (tray, windows, capture-excluded + always-on-top HUD, autostart), `capabilities/`
+  (tray, windows, capture-excluded + always-on-top HUD), `capabilities/`
   (v2 permissions — every window command the UI calls must be listed there).
 
 ## Startup
 
-Only a **release** build registers itself to start with Windows. A debug build
-loads its UI from the dev server `tauri dev` runs, and that address is compiled
-in — so registering one for startup means every boot opens a window pointing at
-a server nobody started ("can't reach this page", then a port number). A debug
-build now clears the entry instead, which also repairs a machine that has the
-bad path registered.
+Clio does **not** start with Windows - she starts when her icon is clicked (the
+desktop or Start menu shortcut to `src-tauri/target/release/clio.exe`). A release
+build actively clears the startup entry older builds registered. A debug build
+never touches it.
 
 The icons in `src-tauri/icons/` are built from `source.webp` by `make_icons.py`:
 the picture itself at 64 px and up, and a simplified ring-and-reticle mark at

@@ -3,8 +3,8 @@
 // The main window is the HUD: always on top, and content-protected so it stays
 // out of screen shares and recordings (set_content_protected calls Windows'
 // SetWindowDisplayAffinity). A tray icon shows/hides it, opens the chat &
-// settings panel, toggles mute, and quits. Autostart registers Clio to launch
-// with Windows. The webview talks to the Python core over WebSocket.
+// settings panel, toggles mute, and quits. She starts when her icon is clicked,
+// never with Windows. The webview talks to the Python core over WebSocket.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{
@@ -222,8 +222,12 @@ fn main() {
             // nor removes the release build's. (Found live, 2026-09-21: a debug
             // exe built before this rule still re-registered itself, so the
             // boot window came back. Rebuilding debug replaces that exe.)
+            //
+            // Since 2026-10-13 she doesn't start with Windows at all - his
+            // call: she starts when he clicks her icon. Disabling (rather than
+            // just not enabling) clears the entry older builds registered.
             #[cfg(not(debug_assertions))]
-            let _ = app.autolaunch().enable();
+            let _ = app.autolaunch().disable();
 
             let show = MenuItem::with_id(app, "show", "Show Clio", true, None::<&str>)?;
             let panel = MenuItem::with_id(app, "panel", "Chat & settings", true, None::<&str>)?;

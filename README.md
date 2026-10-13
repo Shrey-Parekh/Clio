@@ -41,7 +41,7 @@ and powering off are never done on a guess.
 - **Core** (`clio/`, Python): the voice loop, the router, every capability, and a
   WebSocket server on `127.0.0.1:8765`.
 - **Shell** (`frontend/`, Tauri v2): the HUD and the chat & settings window, a tray
-  icon, start with Windows. It starts the core, restarts it if it dies, and logs
+  icon. It starts the core, restarts it if it dies, and logs
   why to `logs/core-console.log`.
 
 ## Requirements
@@ -88,8 +88,8 @@ npm run build
 src-tauri\target\release\clio.exe
 ```
 
-The release build registers itself to start with Windows. A debug build
-(`npm run dev`) never touches the startup entry. More in
+Clio doesn't start with Windows: start her by clicking her icon (a desktop or
+Start menu shortcut to that exe). More in
 [frontend/README.md](frontend/README.md).
 
 ## Configuration
